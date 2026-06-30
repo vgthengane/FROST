@@ -9,6 +9,15 @@ import os
 import numpy as np
 
 
+def _append_topk_curve(curve, accy):
+    """Record top-1 and the highest top-k metric present in *accy*."""
+    curve.setdefault("top1", []).append(accy["top1"])
+    topk_keys = sorted(k for k in accy if k.startswith("top") and k != "top1")
+    if topk_keys:
+        key = topk_keys[-1]
+        curve.setdefault(key, []).append(accy[key])
+
+
 def train(args):
     seed_list = copy.deepcopy(args["seed"])
     device = copy.deepcopy(args["device"])
@@ -62,7 +71,7 @@ def _train(args):
     args["nb_tasks"] = data_manager.nb_tasks
     model = factory.get_model(args["model_name"], args)
 
-    cnn_curve, nme_curve = {"top1": [], "top5": []}, {"top1": [], "top5": []}
+    cnn_curve, nme_curve = {"top1": []}, {"top1": []}
     cnn_matrix, nme_matrix = [], []
 
     for task in range(data_manager.nb_tasks):
@@ -86,16 +95,18 @@ def _train(args):
             nme_values = [nme_accy["grouped"][key] for key in nme_keys]
             nme_matrix.append(nme_values)
 
-            cnn_curve["top1"].append(cnn_accy["top1"])
-            cnn_curve["top5"].append(cnn_accy["top5"])
-
-            nme_curve["top1"].append(nme_accy["top1"])
-            nme_curve["top5"].append(nme_accy["top5"])
+            _append_topk_curve(cnn_curve, cnn_accy)
+            _append_topk_curve(nme_curve, nme_accy)
 
             logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
-            logging.info("CNN top5 curve: {}".format(cnn_curve["top5"]))
+            topk_keys = [k for k in cnn_curve if k != "top1"]
+            if topk_keys:
+                logging.info("CNN {} curve: {}".format(topk_keys[-1], cnn_curve[topk_keys[-1]]))
             logging.info("NME top1 curve: {}".format(nme_curve["top1"]))
-            logging.info("NME top5 curve: {}\n".format(nme_curve["top5"]))
+            if topk_keys:
+                nme_topk = [k for k in nme_curve if k != "top1"]
+                if nme_topk:
+                    logging.info("NME {} curve: {}\n".format(nme_topk[-1], nme_curve[nme_topk[-1]]))
 
             print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
             print('Average Accuracy (NME):', sum(nme_curve["top1"])/len(nme_curve["top1"]))
@@ -110,11 +121,12 @@ def _train(args):
             cnn_values = [cnn_accy["grouped"][key] for key in cnn_keys]
             cnn_matrix.append(cnn_values)
 
-            cnn_curve["top1"].append(cnn_accy["top1"])
-            cnn_curve["top5"].append(cnn_accy["top5"])
+            _append_topk_curve(cnn_curve, cnn_accy)
 
             logging.info("CNN top1 curve: {}".format(cnn_curve["top1"]))
-            logging.info("CNN top5 curve: {}\n".format(cnn_curve["top5"]))
+            topk_keys = [k for k in cnn_curve if k != "top1"]
+            if topk_keys:
+                logging.info("CNN {} curve: {}\n".format(topk_keys[-1], cnn_curve[topk_keys[-1]]))
 
             print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
             logging.info("Average Accuracy (CNN): {} \n".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))

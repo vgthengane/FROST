@@ -76,9 +76,16 @@ class DataManager(object):
         data, targets = np.concatenate(data), np.concatenate(targets)
 
         if ret_data:
-            return data, targets, DummyDataset(data, targets, trsf, self.use_path)
+            dataset = DummyDataset(
+                data, targets, trsf, self.use_path, self._is_pointcloud
+            )
+            if self._is_pointcloud:
+                return data, targets, None, dataset
+            return data, targets, dataset
         else:
-            return DummyDataset(data, targets, trsf, self.use_path)
+            return DummyDataset(
+                data, targets, trsf, self.use_path, self._is_pointcloud
+            )
 
     def get_dataset_with_split(
         self, indices, source, mode, appendent=None, val_samples_per_class=0
@@ -133,8 +140,8 @@ class DataManager(object):
         val_data, val_targets = np.concatenate(val_data), np.concatenate(val_targets)
 
         return DummyDataset(
-            train_data, train_targets, trsf, self.use_path
-        ), DummyDataset(val_data, val_targets, trsf, self.use_path)
+            train_data, train_targets, trsf, self.use_path, self._is_pointcloud
+        ), DummyDataset(val_data, val_targets, trsf, self.use_path, self._is_pointcloud)
 
     def _setup_data(self, dataset_name, shuffle, seed):
         idata = _get_idata(dataset_name, self.args)
@@ -144,6 +151,7 @@ class DataManager(object):
         self._train_data, self._train_targets = idata.train_data, idata.train_targets
         self._test_data, self._test_targets = idata.test_data, idata.test_targets
         self.use_path = idata.use_path
+        self._is_pointcloud = getattr(idata, "is_pointcloud", False)
 
         # Transforms
         self._train_trsf = idata.train_trsf
@@ -189,18 +197,23 @@ class DataManager(object):
 
 
 class DummyDataset(Dataset):
-    def __init__(self, images, labels, trsf, use_path=False):
+    def __init__(self, images, labels, trsf, use_path=False, is_pointcloud=False):
         assert len(images) == len(labels), "Data size error!"
         self.images = images
         self.labels = labels
         self.trsf = trsf
         self.use_path = use_path
+        self.is_pointcloud = is_pointcloud
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, idx):
-        if self.use_path:
+        if self.is_pointcloud:
+            import torch
+
+            image = torch.from_numpy(self.images[idx]).float()
+        elif self.use_path:
             image = self.trsf(pil_loader(self.images[idx]))
         else:
             image = self.trsf(Image.fromarray(self.images[idx]))
@@ -237,6 +250,10 @@ def _get_idata(dataset_name, args=None):
         return omnibenchmark()
     elif name == "vtab":
         return vtab()
+    elif name == "modelnet40":
+        from datasets.modelnet40 import iModelNet40
+
+        return iModelNet40(args)
 
     else:
         raise NotImplementedError("Unknown dataset {}.".format(dataset_name))

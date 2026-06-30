@@ -410,8 +410,9 @@ class Learner(BaseLearner):
                 else:
                     outputs = final_logits
                 
+            k = min(self.topk, outputs.shape[1])
             predicts = torch.topk(
-                outputs, k=self.topk, dim=1, largest=True, sorted=True
+                outputs, k=k, dim=1, largest=True, sorted=True
             )[
                 1
             ]  # [bs, topk]
@@ -422,3 +423,8 @@ class Learner(BaseLearner):
         logging.info("the accuracy of the original model:{}".format(np.around(orig_acc, 2)))
         y_types_arr = np.array(y_types) if y_types else None
         return np.concatenate(y_pred), np.concatenate(y_true), y_types_arr  # [N, topk], [N], [N] or None
+
+    def eval_task(self):
+        y_pred, y_true, _y_types = self._eval_cnn(self.test_loader)
+        cnn_accy = self._evaluate(y_pred, y_true)
+        return cnn_accy, None

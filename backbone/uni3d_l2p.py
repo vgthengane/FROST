@@ -41,6 +41,22 @@ def _warmup_cublas_if_needed(device: torch.device) -> None:
     _CUBLAS_WARMED_DEVICES.add(idx)
 
 
+def _fps_torch(data, number):
+    """Batched FPS without pointnet2_ops (slower; for dev / CPU-only setups)."""
+    b, n, _ = data.shape
+    centroids = torch.zeros(b, number, dtype=torch.long, device=data.device)
+    distance = torch.ones(b, n, device=data.device) * 1e10
+    farthest = torch.randint(0, n, (b,), device=data.device)
+    batch_idx = torch.arange(b, device=data.device)
+    for i in range(number):
+        centroids[:, i] = farthest
+        centroid = data[batch_idx, farthest, :].unsqueeze(1)
+        dist = torch.sum((data - centroid) ** 2, dim=-1)
+        distance = torch.min(distance, dist)
+        farthest = torch.max(distance, dim=-1)[1]
+    return torch.gather(data, 1, centroids.unsqueeze(-1).expand(-1, -1, 3))
+
+
 def fps(data, number):
     """
     Farthest Point Sampling
@@ -48,7 +64,7 @@ def fps(data, number):
     number: int
     """
     if pointnet2_utils is None:
-        raise ImportError("pointnet2_ops is required for Uni3D")
+        return _fps_torch(data, number)
     fps_idx = pointnet2_utils.furthest_point_sample(data, number)
     fps_data = pointnet2_utils.gather_operation(
         data.transpose(1, 2).contiguous(), fps_idx
