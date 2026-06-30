@@ -21,6 +21,12 @@ def target2onehot(targets, n_classes):
     return onehot
 
 
+def safe_topk_indices(outputs, k):
+    """Return top-k class indices, clamping k to the number of logits."""
+    k = min(int(k), outputs.shape[1])
+    return torch.topk(outputs, k=k, dim=1, largest=True, sorted=True)[1]
+
+
 def makedirs(path):
     if not os.path.exists(path):
         os.makedirs(path)

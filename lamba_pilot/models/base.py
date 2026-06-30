@@ -1,10 +1,11 @@
 import copy
 import logging
+import os
 import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from utils.toolkit import tensor2numpy, accuracy
+from utils.toolkit import tensor2numpy, safe_topk_indices, accuracy
 from scipy.spatial.distance import cdist
 
 EPSILON = 1e-8
@@ -89,7 +90,110 @@ class BaseLearner(object):
         plt.close()
 
 
+    def _unwrap_network(self):
+        if isinstance(self._network, nn.DataParallel):
+            return self._network.module
+        return self._network
+
+    @staticmethod
+    def _to_cpu_nested(obj):
+        if torch.is_tensor(obj):
+            return obj.detach().cpu()
+        if isinstance(obj, np.ndarray):
+            return obj
+        if isinstance(obj, dict):
+            return {k: BaseLearner._to_cpu_nested(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return type(obj)(BaseLearner._to_cpu_nested(v) for v in obj)
+        return obj
+
+    def _checkpoint_extra(self):
+        """Optional learner-specific state (override in subclasses)."""
+        return {}
+
+    def _load_checkpoint_extra(self, extra):
+        """Restore learner-specific state saved by ``_checkpoint_extra``."""
+        pass
+
+    def build_checkpoint(self, trainer_state=None):
+        network = self._unwrap_network()
+        state = {
+            "version": 1,
+            "cur_task": self._cur_task,
+            "known_classes": self._known_classes,
+            "total_classes": self._total_classes,
+            "model_state_dict": copy.deepcopy(network.state_dict()),
+            "data_memory": self._data_memory,
+            "targets_memory": self._targets_memory,
+            "learner_extra": self._to_cpu_nested(self._checkpoint_extra()),
+        }
+        if hasattr(self, "_class_means") and getattr(self, "_class_means", None) is not None:
+            state["class_means"] = self._class_means
+        if trainer_state is not None:
+            state["trainer_state"] = trainer_state
+        return state
+
+    def save_task_checkpoint(self, checkpoint_dir, trainer_state=None):
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        path = os.path.join(
+            checkpoint_dir, "task_{:03d}.pt".format(self._cur_task)
+        )
+        torch.save(self.build_checkpoint(trainer_state), path)
+        logging.info("Saved checkpoint: %s", path)
+        return path
+
+    def _prepare_network_from_checkpoint(self, ckpt):
+        """Resize heads so ``load_state_dict`` can restore a mid-run model."""
+        network = self._unwrap_network()
+        if not hasattr(network, "update_fc"):
+            return
+        state = ckpt["model_state_dict"]
+        fc_weight_key = next((k for k in state if k.endswith("fc.weight")), None)
+        if fc_weight_key is None:
+            return
+        saved_out = int(state[fc_weight_key].shape[0])
+        current_out = None
+        if network.fc is not None:
+            current_out = getattr(network.fc, "out_features", None)
+            if current_out is None and hasattr(network.fc, "weight"):
+                current_out = int(network.fc.weight.shape[0])
+        if current_out == saved_out:
+            return
+
+        model_name = self.args.get("model_name", "")
+        cur_task = int(ckpt["cur_task"])
+        if model_name in ("tuna", "slca"):
+            init_cls = self.args["init_cls"]
+            inc = self.args["increment"]
+            for task_id in range(cur_task + 1):
+                network.update_fc(init_cls if task_id == 0 else inc)
+        else:
+            network.update_fc(int(ckpt["total_classes"]))
+
+    def load_checkpoint(self, path):
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        self._cur_task = int(ckpt["cur_task"])
+        self._known_classes = int(ckpt["known_classes"])
+        self._total_classes = int(ckpt["total_classes"])
+        self._data_memory = ckpt.get("data_memory", np.array([]))
+        self._targets_memory = ckpt.get("targets_memory", np.array([]))
+        if "class_means" in ckpt:
+            self._class_means = ckpt["class_means"]
+        network = self._unwrap_network()
+        self._prepare_network_from_checkpoint(ckpt)
+        network.load_state_dict(ckpt["model_state_dict"], strict=True)
+        self._load_checkpoint_extra(ckpt.get("learner_extra", {}))
+        network.to(self._device)
+        logging.info(
+            "Loaded checkpoint %s (completed task %d, classes %d)",
+            path,
+            self._cur_task,
+            self._total_classes,
+        )
+        return ckpt
+
     def save_checkpoint(self, filename):
+        """Legacy per-task pickle save (FeCAM and other 2D baselines)."""
         self._network.cpu()
         save_dict = {
             "tasks": self._cur_task,
@@ -114,7 +218,11 @@ class BaseLearner(object):
         return ret
 
     def eval_task(self):
-        y_pred, y_true = self._eval_cnn(self.test_loader)
+        eval_out = self._eval_cnn(self.test_loader)
+        if isinstance(eval_out, tuple) and len(eval_out) == 3:
+            y_pred, y_true, _y_types = eval_out
+        else:
+            y_pred, y_true = eval_out
         cnn_accy = self._evaluate(y_pred, y_true)
 
         if hasattr(self, "_class_means"):
@@ -157,11 +265,7 @@ class BaseLearner(object):
             inputs = inputs.to(self._device)
             with torch.no_grad():
                 outputs = self._network(inputs)["logits"]
-            predicts = torch.topk(
-                outputs, k=self.topk, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
+            predicts = safe_topk_indices(outputs, self.topk)
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
 

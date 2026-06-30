@@ -18,6 +18,39 @@ def _append_topk_curve(curve, accy):
         curve.setdefault(key, []).append(accy[key])
 
 
+def _find_latest_checkpoint(checkpoint_dir):
+    if not os.path.isdir(checkpoint_dir):
+        return None
+    paths = [
+        os.path.join(checkpoint_dir, name)
+        for name in os.listdir(checkpoint_dir)
+        if name.startswith("task_") and name.endswith(".pt")
+    ]
+    if not paths:
+        return None
+    return max(paths)
+
+
+def _snapshot_trainer_state(cnn_curve, nme_curve, cnn_matrix, nme_matrix):
+    return {
+        "cnn_curve": copy.deepcopy(cnn_curve),
+        "nme_curve": copy.deepcopy(nme_curve),
+        "cnn_matrix": copy.deepcopy(cnn_matrix),
+        "nme_matrix": copy.deepcopy(nme_matrix),
+    }
+
+
+def _restore_trainer_state(state, cnn_curve, nme_curve, cnn_matrix, nme_matrix):
+    cnn_curve.clear()
+    for key, values in state.get("cnn_curve", {"top1": []}).items():
+        cnn_curve[key] = list(values)
+    nme_curve.clear()
+    for key, values in state.get("nme_curve", {"top1": []}).items():
+        nme_curve[key] = list(values)
+    cnn_matrix[:] = copy.deepcopy(state.get("cnn_matrix", []))
+    nme_matrix[:] = copy.deepcopy(state.get("nme_matrix", []))
+
+
 def train(args):
     seed_list = copy.deepcopy(args["seed"])
     device = copy.deepcopy(args["device"])
@@ -31,19 +64,23 @@ def train(args):
 def _train(args):
 
     init_cls = 0 if args ["init_cls"] == args["increment"] else args["init_cls"]
-    logs_name = "logs/{}/{}/{}/{}".format(args["model_name"],args["dataset"], init_cls, args['increment'])
-    
+    log_root = args.get("log_dir", "logs")
+    if log_root == "logs":
+        logs_name = os.path.join(
+            log_root, args["model_name"], args["dataset"], str(init_cls), str(args["increment"])
+        )
+    else:
+        # 3D CIL: _experiments/<dataset>/methods/<model_name>/...
+        logs_name = os.path.join(
+            log_root, args["model_name"], str(init_cls), str(args["increment"])
+        )
+
     if not os.path.exists(logs_name):
         os.makedirs(logs_name)
 
-    logfilename = "logs/{}/{}/{}/{}/{}_{}_{}".format(
-        args["model_name"],
-        args["dataset"],
-        init_cls,
-        args["increment"],
-        args["prefix"],
-        args["seed"],
-        args["backbone_type"],
+    logfilename = os.path.join(
+        logs_name,
+        "{}_{}_{}".format(args["prefix"], args["seed"], args["backbone_type"]),
     )
     logging.basicConfig(
         level=logging.INFO,
@@ -69,12 +106,45 @@ def _train(args):
     
     args["nb_classes"] = data_manager.nb_classes # update args
     args["nb_tasks"] = data_manager.nb_tasks
+
+    checkpoint_dir = os.path.join(
+        logs_name,
+        "checkpoints",
+        "{}_{}_{}".format(args["prefix"], args["seed"], args["backbone_type"]),
+    )
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    args["checkpoint_dir"] = checkpoint_dir
+    save_checkpoint = args.get("save_checkpoint", True)
+
     model = factory.get_model(args["model_name"], args)
 
     cnn_curve, nme_curve = {"top1": []}, {"top1": []}
     cnn_matrix, nme_matrix = [], []
 
-    for task in range(data_manager.nb_tasks):
+    start_task = 0
+    if args.get("resume"):
+        latest_ckpt = _find_latest_checkpoint(checkpoint_dir)
+        if latest_ckpt:
+            ckpt = model.load_checkpoint(latest_ckpt)
+            start_task = model._cur_task + 1
+            trainer_state = ckpt.get("trainer_state")
+            if trainer_state:
+                _restore_trainer_state(
+                    trainer_state, cnn_curve, nme_curve, cnn_matrix, nme_matrix
+                )
+            logging.info(
+                "Resuming from task %d / %d (checkpoint: %s)",
+                start_task,
+                data_manager.nb_tasks,
+                latest_ckpt,
+            )
+        else:
+            logging.info(
+                "resume=True but no checkpoint in %s; starting from task 0",
+                checkpoint_dir,
+            )
+
+    for task in range(start_task, data_manager.nb_tasks):
         logging.info("All params: {}".format(count_parameters(model._network)))
         logging.info(
             "Trainable params: {}".format(count_parameters(model._network, True))
@@ -130,6 +200,12 @@ def _train(args):
 
             print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
             logging.info("Average Accuracy (CNN): {} \n".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))
+
+        if save_checkpoint:
+            trainer_state = _snapshot_trainer_state(
+                cnn_curve, nme_curve, cnn_matrix, nme_matrix
+            )
+            model.save_task_checkpoint(checkpoint_dir, trainer_state)
 
     if 'print_forget' in args.keys() and args['print_forget'] is True:
         if len(cnn_matrix) > 0:
