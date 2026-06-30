@@ -11,7 +11,7 @@ Uses:
 Run from the repository root:
 
     aprun python train_cil.py --config configs/mos_modelnet40.json
-    bash scripts/train_cil.sh mos_modelnet40 --smoke
+    bash scripts/train_cil.sh simplecil mos
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ REPO_ROOT = Path(__file__).resolve().parent
 LAMBA_ROOT = REPO_ROOT / "lamba_pilot"
 ROOT_INC_NET = REPO_ROOT / "utils" / "inc_net.py"
 
-# Populated by scripts/train_cil.sh --smoke via CIL_SMOKE_* env vars.
 SMOKE_ENV_KEYS = {
     "prefix": "CIL_SMOKE_PREFIX",
     "max_classes": "CIL_SMOKE_MAX_CLASSES",
@@ -37,6 +36,21 @@ SMOKE_ENV_KEYS = {
     "crct_epochs": "CIL_SMOKE_CRCT_EPOCHS",
     "batch_size": "CIL_SMOKE_BATCH_SIZE",
     "num_workers": "CIL_SMOKE_NUM_WORKERS",
+}
+
+SMOKE_DEFAULTS = {
+    "prefix": "smoke_mn40",
+    "max_classes": 8,
+    "max_train_per_class": 10,
+    "max_test_per_class": 5,
+    "tuned_epoch": 2,
+    "crct_epochs": 2,
+    "batch_size": 4,
+    "num_workers": 2,
+    "epochs": 2,
+    "ca_epochs": 1,
+    "init_epochs": 2,
+    "later_epochs": 2,
 }
 
 
@@ -60,13 +74,16 @@ def _setup_paths() -> None:
 
 
 def _resolve_paths(args: dict) -> None:
-    for key in ("data_path", "pretrained_pc"):
+    for key in ("data_path", "pretrained_pc", "log_dir"):
         value = args.get(key)
         if not value:
             continue
         path = Path(value)
         if not path.is_absolute():
-            args[key] = str((REPO_ROOT / path).resolve())
+            path = (REPO_ROOT / path).resolve()
+        args[key] = str(path)
+        if key == "log_dir":
+            path.mkdir(parents=True, exist_ok=True)
 
 
 def _parse_override(raw: str):
@@ -95,18 +112,6 @@ def _apply_overrides(args: dict, overrides: list[str]) -> None:
         args[key.strip()] = _parse_override(value.strip())
 
 
-SMOKE_DEFAULTS = {
-    "prefix": "smoke_mn40",
-    "max_classes": 8,
-    "max_train_per_class": 10,
-    "max_test_per_class": 5,
-    "tuned_epoch": 2,
-    "crct_epochs": 2,
-    "batch_size": 4,
-    "num_workers": 2,
-}
-
-
 def _apply_smoke_overrides(args: dict) -> None:
     """Apply smoke overrides from CIL_SMOKE_* env vars or built-in defaults."""
     applied = []
@@ -119,10 +124,8 @@ def _apply_smoke_overrides(args: dict) -> None:
     if not applied:
         args.update(SMOKE_DEFAULTS)
         applied = list(SMOKE_DEFAULTS.keys())
-    logging_msg = "Smoke overrides: {}".format(
-        {k: args[k] for k in applied if k in args}
-    )
-    print(logging_msg)
+    args["save_checkpoint"] = False
+    print("Smoke overrides: {}".format({k: args[k] for k in applied if k in args}))
 
 
 def load_json(path: str | Path) -> dict:
@@ -139,9 +142,20 @@ def parse_args():
         help="Experiment JSON under configs/",
     )
     parser.add_argument(
+        "--logdir",
+        type=str,
+        default=None,
+        help="Experiment log directory (default: _experiments/<dataset>/methods).",
+    )
+    parser.add_argument(
         "--smoke",
         action="store_true",
-        help="Dry-run mode; reads CIL_SMOKE_* overrides from the environment.",
+        help="Short dry-run with built-in smoke-test overrides.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the latest per-task checkpoint under the run log directory.",
     )
     parser.add_argument(
         "--set",
@@ -170,7 +184,17 @@ def main():
         _apply_smoke_overrides(args)
     if cli.set:
         _apply_overrides(args, cli.set)
+    if cli.resume:
+        args["resume"] = True
+        args["save_checkpoint"] = True
+    if cli.logdir:
+        args["log_dir"] = cli.logdir
     _resolve_paths(args)
+    if "log_dir" not in args:
+        dataset = args.get("dataset", "modelnet40").lower()
+        args["log_dir"] = str(
+            (REPO_ROOT / "_experiments" / dataset / "methods").resolve()
+        )
 
     from trainer import train
 

@@ -54,12 +54,13 @@ class Uni3DBase(nn.Module):
         # Final embedding projection
         self.trans2embed = nn.Linear(trans_dim, embed_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, layer_feat: bool = False):
         """
         Args:
             x: [B, N, 6] float tensor
+            layer_feat: if True, return per-block token features for SLCA
         Returns:
-            features: [B, embed_dim]
+            features: [B, embed_dim] or {"features": list of [B, T, trans_dim]}
         """
         pts = x[:, :, :3].contiguous()
         colors = x[:, :, 3:].contiguous()
@@ -82,13 +83,19 @@ class Uni3DBase(nn.Module):
         tokens = self.patch_dropout(tokens)
         tokens = self.visual.pos_drop(tokens)
 
+        layer_outputs = []
         for blk in self.visual.blocks:
             tokens = blk(tokens)
+            if layer_feat:
+                layer_outputs.append(tokens)
 
         x_cls = self.visual.norm(tokens[:, 0, :])
         x_cls = self.visual.fc_norm(x_cls)
+        out = self.trans2embed(x_cls)
 
-        return self.trans2embed(x_cls)
+        if layer_feat:
+            return {"features": layer_outputs}
+        return out
 
 
 def create_uni3d_base(

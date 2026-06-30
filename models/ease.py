@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from utils.inc_net import EaseNet
 from models.base import BaseLearner
-from utils.toolkit import tensor2numpy
+from utils.toolkit import tensor2numpy, safe_topk_indices
 
 num_workers = 8
 
@@ -391,11 +391,7 @@ class Learner(BaseLearner):
 
             with torch.no_grad():
                 outputs = self._network.forward(inputs, test=True)["logits"]
-            predicts = torch.topk(
-                outputs, k=self.topk, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
+            predicts = safe_topk_indices(outputs, self.topk)
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
             if sample_types is not None:

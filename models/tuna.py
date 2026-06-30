@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from utils.inc_net import TUNANet
 from models.base import BaseLearner
-from utils.toolkit import tensor2numpy
+from utils.toolkit import tensor2numpy, safe_topk_indices
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 num_workers = 8
@@ -91,6 +91,18 @@ class Learner(BaseLearner):
 
     def after_task(self):
         self._known_classes = self._total_classes
+
+    def _checkpoint_extra(self):
+        return {
+            "cls_mean": self.cls_mean,
+            "cls_cov": self.cls_cov,
+            "cls2task": dict(self.cls2task),
+        }
+
+    def _load_checkpoint_extra(self, extra):
+        self.cls_mean = extra.get("cls_mean", {})
+        self.cls_cov = extra.get("cls_cov", {})
+        self.cls2task = extra.get("cls2task", {})
 
     def incremental_train(self, data_manager):
         self._cur_task += 1
@@ -368,11 +380,7 @@ class Learner(BaseLearner):
                 features = self._network.backbone(inputs, adapter_id=0, train=False)["features"]
                 logits = self._network.fc(features)["logits"][:, :self._total_classes]
 
-            predicts = torch.topk(
-                logits, k=self.topk, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
+            predicts = safe_topk_indices(logits, self.topk)
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
 
@@ -400,9 +408,7 @@ class Learner(BaseLearner):
                     logits = self._network.fc(features)["logits"][:, :self._total_classes] * self.args['scale']
                 probs = F.softmax(logits, dim=1)
                 entropy = -torch.sum(probs * torch.log(probs + 1e-10), dim=1)  # bs
-                predicts = torch.topk(
-                    logits, k=self.topk, dim=1, largest=True, sorted=True
-                )[1]
+                predicts = safe_topk_indices(logits, self.topk)
                 all_predicts.append(predicts.cpu().numpy())
                 all_entropies.append(entropy.cpu().numpy())
                 all_logits.append(logits.cpu().numpy())
@@ -420,7 +426,7 @@ class Learner(BaseLearner):
             min_entropy_logits = F.softmax(min_entropy_logits, dim=1)
 
             outputs = logits + min_entropy_logits
-            predicts = torch.topk(outputs, k=self.topk, dim=1, largest=True, sorted=True)[1]
+            predicts = safe_topk_indices(outputs, self.topk)
             pred_specific = torch.max(min_entropy_logits, dim=1)[1]
             pred_general = torch.max(logits, dim=1)[1]
             y_pred.append(predicts.cpu().numpy())

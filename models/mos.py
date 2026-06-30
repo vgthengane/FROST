@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from utils.inc_net import MOSNet
 from models.base import BaseLearner
-from utils.toolkit import tensor2numpy, target2onehot
+from utils.toolkit import tensor2numpy, target2onehot, safe_topk_indices
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 
@@ -73,6 +73,18 @@ class Learner(BaseLearner):
 
     def after_task(self):
         self._known_classes = self._total_classes
+
+    def _checkpoint_extra(self):
+        return {
+            "cls_mean": self.cls_mean,
+            "cls_cov": self.cls_cov,
+            "cls2task": dict(self.cls2task),
+        }
+
+    def _load_checkpoint_extra(self, extra):
+        self.cls_mean = extra.get("cls_mean", {})
+        self.cls_cov = extra.get("cls_cov", {})
+        self.cls2task = extra.get("cls2task", {})
 
     def incremental_train(self, data_manager):
         self._cur_task += 1
@@ -410,12 +422,7 @@ class Learner(BaseLearner):
                 else:
                     outputs = final_logits
                 
-            k = min(self.topk, outputs.shape[1])
-            predicts = torch.topk(
-                outputs, k=k, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
+            predicts = safe_topk_indices(outputs, self.topk)
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
 

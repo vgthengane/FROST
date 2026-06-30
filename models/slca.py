@@ -53,6 +53,21 @@ class Learner(BaseLearner):
         # self.save_checkpoint(self.log_path+'/'+self.model_prefix+'_seed{}'.format(self.seed), head_only=self.fix_bcb)
         self._network.fc.recall()
 
+    def _checkpoint_extra(self):
+        extra = {"task_sizes": list(self.task_sizes)}
+        if hasattr(self, "_class_means_slca"):
+            extra["class_means_slca"] = self._class_means_slca
+        if hasattr(self, "_class_covs_slca"):
+            extra["class_covs_slca"] = self._class_covs_slca
+        return extra
+
+    def _load_checkpoint_extra(self, extra):
+        self.task_sizes = list(extra.get("task_sizes", []))
+        if "class_means_slca" in extra:
+            self._class_means_slca = extra["class_means_slca"]
+        if "class_covs_slca" in extra:
+            self._class_covs_slca = extra["class_covs_slca"]
+
     def incremental_train(self, data_manager):
         self._cur_task += 1
         task_size = data_manager.get_task_size(self._cur_task)
@@ -268,7 +283,7 @@ class Learner(BaseLearner):
             )
             idx_loader = DataLoader(idx_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4)
             # BaseLearner._extract_vectors returns (vectors, targets, y_types)
-            vectors, _, _ = self._extract_vectors(idx_loader)
+            vectors, _ = self._extract_vectors(idx_loader)
 
             # vectors = np.concatenate([vectors_aug, vectors])
 

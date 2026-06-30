@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from utils.inc_net import PromptVitNet
 from models.base import BaseLearner
-from utils.toolkit import tensor2numpy
+from utils.toolkit import tensor2numpy, safe_topk_indices
 
 # tune the model at first session with vpt, and then conduct simple shot.
 num_workers = 8
@@ -255,11 +255,7 @@ class Learner(BaseLearner):
             inputs = inputs.to(self._device)
             with torch.no_grad():
                 outputs = self._network(inputs, task_id=self._cur_task)["logits"][:, :self._total_classes]
-            predicts = torch.topk(
-                outputs, k=self.topk, dim=1, largest=True, sorted=True
-            )[
-                1
-            ]  # [bs, topk]
+            predicts = safe_topk_indices(outputs, self.topk)
             y_pred.append(predicts.cpu().numpy())
             y_true.append(targets.cpu().numpy())
 
