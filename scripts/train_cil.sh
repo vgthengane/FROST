@@ -1,46 +1,58 @@
-#!/usr/bin/env bash
-# Run 3D continual learning on ModelNet40 via Uni3D + LAMDA-PILOT.
-#
-# Usage:
-#   bash scripts/train_cil.sh                          # full run, mos_modelnet40
-#   bash scripts/train_cil.sh simplecil_modelnet40     # full run
-#   bash scripts/train_cil.sh mos_modelnet40 --smoke   # short dry-run
-#
-# Requires ModelNet40 at _datasets/modelnet40_normal_resampled (see README).
+#!/bin/bash
+#SBATCH --job-name=selfevo-cl-train-full
+#SBATCH --account=EUHPC_D36_199
+#SBATCH --partition=boost_usr_prod
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus=1
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=64G
+#SBATCH --time=24:00:00
+#SBATCH --output=_experiments/slurm_logs/%j_%x.out
+
+# Run from repo root:
+#   bash scripts/train_cil.sh simplecil mos
+#   bash scripts/train_cil.sh l2p --resume
+#   sbatch scripts/train_cil.sh l2p dualprompt coda_prompt
 
 set -euo pipefail
+cd "${SLURM_SUBMIT_DIR:-.}"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG="mos_modelnet40"
-SMOKE=false
-
+RESUME=false
+METHODS=()
 for arg in "$@"; do
   case "${arg}" in
-    --smoke) SMOKE=true ;;
-    *) CONFIG="${arg}" ;;
+    --resume) RESUME=true ;;
+    -*) echo "Unknown option: ${arg}" >&2; exit 1 ;;
+    *) METHODS+=("${arg}") ;;
   esac
 done
 
-CONFIG_PATH="${REPO_ROOT}/configs/${CONFIG}.json"
-
-if [[ ! -f "${CONFIG_PATH}" ]]; then
-  echo "Config not found: ${CONFIG_PATH}" >&2
+if [[ ${#METHODS[@]} -eq 0 ]]; then
+  echo "Usage: bash scripts/train_cil.sh <method> [method ...] [--resume]" >&2
   exit 1
 fi
 
-SMOKE_ARGS=()
-if [[ "${SMOKE}" == true ]]; then
-  # 2 tasks × 4 classes/task (full run: 10 tasks × 4 = 40 classes)
-  export CIL_SMOKE_PREFIX=smoke_mn40
-  export CIL_SMOKE_MAX_CLASSES=8
-  export CIL_SMOKE_MAX_TRAIN_PER_CLASS=10
-  export CIL_SMOKE_MAX_TEST_PER_CLASS=5
-  export CIL_SMOKE_TUNED_EPOCH=2
-  export CIL_SMOKE_CRCT_EPOCHS=2
-  export CIL_SMOKE_BATCH_SIZE=4
-  export CIL_SMOKE_NUM_WORKERS=2
-  SMOKE_ARGS=(--smoke)
+LOG_ROOT="_experiments/modelnet40/methods"
+RESUME_ARGS=()
+if [[ "${RESUME}" == true ]]; then
+  RESUME_ARGS=(--resume)
 fi
 
-cd "${REPO_ROOT}"
-aprun python train_cil.py --config "${CONFIG_PATH}" "${SMOKE_ARGS[@]}"
+for METHOD in "${METHODS[@]}"; do
+  config_path="configs/${METHOD}_modelnet40.json"
+  log_dir="${LOG_ROOT}/${METHOD}"
+
+  if [[ ! -f "${config_path}" ]]; then
+    echo "Config not found: ${config_path}" >&2
+    exit 1
+  fi
+
+  echo "========== Starting RUN: ${METHOD} =========="
+  aprun python train_cil.py \
+    --config "${config_path}" \
+    --logdir="${log_dir}" \
+    "${RESUME_ARGS[@]}"
+  echo "========== Finished RUN: ${METHOD} ==========" >> "${LOG_ROOT}/${METHOD}.log"
+done
