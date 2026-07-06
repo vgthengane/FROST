@@ -20,6 +20,8 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-.}"
 
+ARCHIVE_CONFIG_DIR="_archive/configs/cil"
+
 if [[ $# -eq 0 ]]; then
   set -- simplecil mos l2p dualprompt coda_prompt slca aper_adapter ease ranpac tuna
 fi
@@ -31,8 +33,13 @@ for METHOD in "$@"; do
   log_dir="${LOG_ROOT}/${METHOD}"
 
   if [[ ! -f "${config_path}" ]]; then
-    echo "Config not found: ${config_path}" >&2
-    exit 1
+    archive_candidate="${ARCHIVE_CONFIG_DIR}/$(basename "${config_path}")"
+    if [[ -f "${archive_candidate}" ]]; then
+      config_path="${archive_candidate}"
+    else
+      echo "Config not found: ${config_path}" >&2
+      exit 1
+    fi
   fi
 
   echo "========== Starting SMOKE RUN: ${METHOD} =========="
