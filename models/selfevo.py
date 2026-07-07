@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import logging
 from pathlib import Path
@@ -245,16 +246,123 @@ class Learner(BaseLearner):
             for param in self._network.fc.parameters():
                 param.requires_grad = train_fc
 
+    def _warmup_lr(self) -> float:
+        """LR for adapter warmup; task 0 may use ``task0_init_lr``."""
+        if self._cur_task == 0 and self.args.get("task0_init_lr") is not None:
+            return float(self.args["task0_init_lr"])
+        return float(self.args.get("init_lr", 0.01))
+
+    def _task0_warmup_ckpt_dir(self) -> Path | None:
+        if self._cur_task != 0:
+            return None
+        log_dir = self.args.get("log_dir")
+        if not log_dir:
+            return None
+        method = str(self.args.get("method_name", self.args.get("prefix", "selfevo")))
+        seed = self.args.get("seed", 0)
+        if isinstance(seed, list):
+            seed = seed[0]
+        return Path(log_dir) / method / f"task0_warmup_seed={seed}"
+
+    def _save_task0_warmup_ckpts(self) -> bool:
+        if self._cur_task != 0:
+            return False
+        return bool(self.args.get("task0_save_warmup_ckpts", True))
+
+    def _save_task0_warmup_state(
+        self,
+        tag: str,
+        *,
+        epoch: int,
+        test_acc: float,
+        train_acc: float,
+        init_lr: float,
+        state_dict: dict,
+    ) -> Path:
+        ckpt_dir = self._task0_warmup_ckpt_dir()
+        assert ckpt_dir is not None
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
+        path = ckpt_dir / f"{tag}.pt"
+        torch.save(
+            {
+                "tag": tag,
+                "epoch": int(epoch),
+                "test_acc": float(test_acc),
+                "train_acc": float(train_acc),
+                "task0_init_lr": float(init_lr),
+                "model_state_dict": copy.deepcopy(state_dict),
+            },
+            path,
+        )
+        logging.info(
+            "Task 0 warmup checkpoint %s: epoch=%d test_acc=%.2f train_acc=%.2f",
+            path,
+            epoch,
+            test_acc,
+            train_acc,
+        )
+        return path
+
+    def _finalize_task0_warmup_ckpts(
+        self,
+        *,
+        best_epoch: int,
+        best_test_acc: float,
+        best_train_acc: float,
+        last_epoch: int,
+        last_test_acc: float,
+        last_train_acc: float,
+        init_lr: float,
+        best_state: dict | None,
+        last_state: dict,
+    ) -> None:
+        if not self._save_task0_warmup_ckpts():
+            return
+        self._save_task0_warmup_state(
+            "last",
+            epoch=last_epoch,
+            test_acc=last_test_acc,
+            train_acc=last_train_acc,
+            init_lr=init_lr,
+            state_dict=last_state,
+        )
+        if best_state is None:
+            logging.warning("Task 0 warmup: no best checkpoint tracked; using last weights")
+            return
+        self._save_task0_warmup_state(
+            "best",
+            epoch=best_epoch,
+            test_acc=best_test_acc,
+            train_acc=best_train_acc,
+            init_lr=init_lr,
+            state_dict=best_state,
+        )
+        if bool(self.args.get("task0_use_best_warmup", True)):
+            self._unwrap_network().load_state_dict(best_state, strict=True)
+            logging.info(
+                "Task 0 warmup: restored best weights (epoch=%d test_acc=%.2f)",
+                best_epoch,
+                best_test_acc,
+            )
+
     def _init_adapter_train(
         self, train_loader, test_loader, tuned_epoch: int | None = None
     ) -> None:
-        """Adapter SGD on labeled train data before ridge/cache adaptation."""
+        """Adapter SGD/AdamW on labeled train data before ridge/cache adaptation."""
         if tuned_epoch is None:
             tuned_epoch = int(self.args.get("tuned_epoch", 5))
-        init_lr = float(self.args.get("init_lr", 0.01))
-        weight_decay = float(self.args.get("weight_decay", 0.0005))
+        init_lr = self._warmup_lr()
+        if self._cur_task == 0:
+            optimizer_name = str(
+                self.args.get("task0_optimizer") or self.args.get("optimizer", "sgd")
+            ).lower()
+            weight_decay = float(
+                self.args.get("task0_weight_decay", self.args.get("weight_decay", 0.0005))
+            )
+        else:
+            optimizer_name = str(self.args.get("optimizer", "sgd")).lower()
+            weight_decay = float(self.args.get("weight_decay", 0.0005))
         min_lr = float(self.args.get("min_lr", 0.0))
-        optimizer_name = str(self.args.get("optimizer", "sgd")).lower()
         if optimizer_name == "sgd":
             optimizer = optim.SGD(
                 filter(lambda p: p.requires_grad, self._network.parameters()),
@@ -272,16 +380,30 @@ class Learner(BaseLearner):
             optimizer, T_max=tuned_epoch, eta_min=min_lr
         )
 
+        use_point_aug = self._cur_task == 0 and bool(
+            self.args.get("task0_point_augment", False)
+        )
         trainable = sum(p.numel() for p in self._network.parameters() if p.requires_grad)
         logging.info(
-            "Adapter warmup task=%d: %d trainable params, %d epochs, n=%d",
+            "Adapter warmup task=%d: %d trainable params, %d epochs, n=%d, "
+            "lr=%.6f, optimizer=%s, wd=%.1e, point_aug=%s",
             self._cur_task,
             trainable,
             tuned_epoch,
             len(train_loader.dataset),
+            init_lr,
+            optimizer_name,
+            weight_decay,
+            use_point_aug,
         )
 
         info = ""
+        best_test_acc = -1.0
+        best_epoch = 0
+        best_train_acc = 0.0
+        best_state = None
+        last_train_acc = 0.0
+        last_test_acc = 0.0
         prog_bar = tqdm(range(tuned_epoch))
         for epoch in prog_bar:
             self._network.train()
@@ -289,6 +411,16 @@ class Learner(BaseLearner):
             correct, total = 0, 0
             for batch in train_loader:
                 inputs, targets = _unpack_batch(batch, self._device)
+                if use_point_aug:
+                    from datasets.pointcloud_augment import augment_task0_point_cloud
+
+                    inputs = augment_task0_point_cloud(
+                        inputs,
+                        scale_low=float(self.args.get("task0_aug_scale_low", 0.8)),
+                        scale_high=float(self.args.get("task0_aug_scale_high", 1.25)),
+                        shift_range=float(self.args.get("task0_aug_shift_range", 0.1)),
+                        rotate_z=bool(self.args.get("task0_aug_rotate_z", True)),
+                    )
                 logits = self._network(inputs)["logits"]
                 loss = F.cross_entropy(logits, targets)
                 optimizer.zero_grad()
@@ -302,6 +434,17 @@ class Learner(BaseLearner):
             scheduler.step()
             train_acc = np.around(tensor2numpy(correct) * 100 / max(total, 1), decimals=2)
             test_acc = self._adapter_warmup_test_acc(test_loader)
+            last_train_acc = float(train_acc)
+            last_test_acc = float(test_acc)
+            if (
+                self._cur_task == 0
+                and self._save_task0_warmup_ckpts()
+                and test_acc >= best_test_acc
+            ):
+                best_test_acc = float(test_acc)
+                best_epoch = epoch + 1
+                best_train_acc = float(train_acc)
+                best_state = copy.deepcopy(self._unwrap_network().state_dict())
             info = (
                 f"Task {self._cur_task} warmup Epoch {epoch + 1}/{tuned_epoch} => "
                 f"Loss {losses / max(len(train_loader), 1):.3f}, "
@@ -309,6 +452,18 @@ class Learner(BaseLearner):
             )
             prog_bar.set_description(info)
         logging.info(info)
+        if self._cur_task == 0 and self._save_task0_warmup_ckpts():
+            self._finalize_task0_warmup_ckpts(
+                best_epoch=best_epoch,
+                best_test_acc=best_test_acc,
+                best_train_acc=best_train_acc,
+                last_epoch=tuned_epoch,
+                last_test_acc=last_test_acc,
+                last_train_acc=last_train_acc,
+                init_lr=init_lr,
+                best_state=best_state,
+                last_state=copy.deepcopy(self._unwrap_network().state_dict()),
+            )
 
     def _init_classifier_warmup_train(
         self, train_loader, test_loader, tuned_epoch: int
@@ -402,6 +557,49 @@ class Learner(BaseLearner):
     def after_task(self):
         self._known_classes = self._total_classes
 
+    def _log_task_class_names(self, data_manager) -> None:
+        """Log human-readable class names for the current incremental task."""
+        protocol = str(self.args.get("fscil3d_protocol", "")).strip()
+        class_indices = list(range(self._known_classes, self._total_classes))
+        if not class_indices:
+            return
+
+        if protocol in ("modelnet_scanobjectnn", "shapenet_scanobjectnn"):
+            from datasets.scanobjectnn_taxonomy import (
+                cross_scanobjectnn_class_label,
+                format_cross_scanobjectnn_task_classes,
+            )
+
+            datasets = {cross_scanobjectnn_class_label(protocol, i)[0] for i in class_indices}
+            domain = datasets.pop() if len(datasets) == 1 else "mixed"
+            logging.info(
+                "Task %d classes (%d, %s):\n%s",
+                self._cur_task + 1,
+                len(class_indices),
+                domain,
+                format_cross_scanobjectnn_task_classes(protocol, class_indices),
+            )
+            return
+
+        if protocol == "modelnet" and self.args.get("data_path"):
+            from datasets.modelnet40 import iModelNet40
+
+            names = iModelNet40.shape_names(str(self.args["data_path"]))
+            order = data_manager._class_order
+            lines = []
+            for idx in class_indices:
+                orig = order[idx]
+                label = names[orig] if orig < len(names) else str(orig)
+                lines.append(f"  [{idx:2d}] {label} (ModelNet)")
+            logging.info("Task %d classes (%d, ModelNet):\n%s", self._cur_task + 1, len(class_indices), "\n".join(lines))
+            return
+
+        logging.info(
+            "Task %d class indices: %s",
+            self._cur_task + 1,
+            class_indices,
+        )
+
     def incremental_train(self, data_manager):
         self._cur_task += 1
         self._total_classes = self._known_classes + data_manager.get_task_size(
@@ -412,6 +610,7 @@ class Learner(BaseLearner):
             for param in self._network.fc.parameters():
                 param.requires_grad = False
         logging.info("Learning on {}-{}".format(self._known_classes, self._total_classes))
+        self._log_task_class_names(data_manager)
 
         if self.fscil_shot_protocol:
             train_dataset, proto_dataset = prepare_fscil_task_datasets(

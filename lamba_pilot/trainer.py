@@ -51,6 +51,25 @@ def _restore_trainer_state(state, cnn_curve, nme_curve, cnn_matrix, nme_matrix):
     nme_matrix[:] = copy.deepcopy(state.get("nme_matrix", []))
 
 
+def _is_fscil_run(args):
+    """FSCIL runs keep task-0 warmup ckpts in the learner; skip tasks 1+ on disk."""
+    return bool(args.get("fscil_shot_protocol") or args.get("fscil3d_protocol"))
+
+
+def _prune_fscil_non_task0_checkpoints(checkpoint_dir):
+    """Remove per-task checkpoints beyond task 0 (e.g. after --resume on Leonardo)."""
+    if not os.path.isdir(checkpoint_dir):
+        return
+    for name in os.listdir(checkpoint_dir):
+        if not (name.startswith("task_") and name.endswith(".pt")):
+            continue
+        if name == "task_000.pt":
+            continue
+        path = os.path.join(checkpoint_dir, name)
+        os.remove(path)
+        logging.info("Pruned FSCIL checkpoint: %s", path)
+
+
 def train(args):
     seed_list = copy.deepcopy(args["seed"])
     device = copy.deepcopy(args["device"])
@@ -144,7 +163,14 @@ def _train(args):
                 checkpoint_dir,
             )
 
+    max_task = args.get("max_task")
+    if max_task is not None:
+        max_task = int(max_task)
+
     for task in range(start_task, data_manager.nb_tasks):
+        if max_task is not None and task > max_task:
+            logging.info("Stopping after task %d (--max-task %d)", task - 1, max_task)
+            break
         logging.info("All params: {}".format(count_parameters(model._network)))
         logging.info(
             "Trainable params: {}".format(count_parameters(model._network, True))
@@ -201,11 +227,14 @@ def _train(args):
             print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
             logging.info("Average Accuracy (CNN): {} \n".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))
 
-        if save_checkpoint:
+        if save_checkpoint and not (_is_fscil_run(args) and task > 0):
             trainer_state = _snapshot_trainer_state(
                 cnn_curve, nme_curve, cnn_matrix, nme_matrix
             )
             model.save_task_checkpoint(checkpoint_dir, trainer_state)
+
+    if _is_fscil_run(args):
+        _prune_fscil_non_task0_checkpoints(checkpoint_dir)
 
     if 'print_forget' in args.keys() and args['print_forget'] is True:
         if len(cnn_matrix) > 0:

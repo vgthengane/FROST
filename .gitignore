@@ -177,3 +177,5 @@ _experiments/
 _datasets*/
 sync_*.sh
 WORKLOG.md
+_notes/*
+_paper/*

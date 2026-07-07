@@ -11,13 +11,13 @@ Protocol (matches our FSCIL configs and 3D-FLEG reporting):
 
 Log layout (canonical)::
 
-    _experiments/flex_compare/
+    _experiments/00_SIMPL_RUNs/
       <method>_seed=<seed>.log
 
 Usage::
 
-    aprun python scripts/summarize_fscil_results.py --log-root _experiments/flex_compare
-    aprun python scripts/summarize_fscil_results.py --log-root _experiments/flex_compare --out _experiments/flex_compare/results.md
+    aprun python scripts/summarize_fscil_results.py --log-root _experiments/00_SIMPL_RUNs
+    aprun python scripts/summarize_fscil_results.py --log-root _experiments/00_SIMPL_RUNs --out _experiments/00_SIMPL_RUNs/results.md
 """
 
 from __future__ import annotations

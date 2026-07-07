@@ -254,6 +254,22 @@ def _get_idata(dataset_name, args=None):
         from datasets.modelnet40 import iModelNet40
 
         return iModelNet40(args)
+    elif name in ("shapenet53", "shapenet55"):
+        from datasets.shapenet53 import iShapeNet53
+
+        return iShapeNet53(args)
+    elif name == "co3d":
+        from datasets.co3d import iCO3D
+
+        return iCO3D(args)
+    elif name == "scanobjectnn":
+        from datasets.scanobjectnn import iScanObjectNN
+
+        return iScanObjectNN(args)
+    elif name in ("modelnet_scanobjectnn", "shapenet_scanobjectnn"):
+        from datasets.cross_scanobjectnn import iCrossScanObjectNN
+
+        return iCrossScanObjectNN(args)
 
     else:
         raise NotImplementedError("Unknown dataset {}.".format(dataset_name))

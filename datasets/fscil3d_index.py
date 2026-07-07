@@ -1,11 +1,8 @@
-"""FSCIL-3D (ECCV 2022) session splits — loader for later cross-dataset experiments.
+"""FSCIL-3D (ECCV 2022) session schedule — same class IDs and sessions as microshape.
 
-Upstream: external/FSCIL-3D/  (clone from https://github.com/townim-faisal/FSCIL-3D)
-
-Protocols use fixed class order and per-session index files under
-``data/index_files/<protocol>/{train,test}/session_*.txt``.
-Within-dataset setups (modelnet, shapenet, co3d) differ from cross-dataset
-(modelnet_scanobjectnn, shapenet_scanobjectnn, shapenet_co3d).
+Defines which **dataset class IDs** appear in each incremental session (e.g. MN40:
+20+4×5 over 5 sessions). Implementation reads the canonical FSCIL-3D schedule;
+alignment with microshape is by **class id + session**, not by sample lists.
 
 3D-FLEG uses related but not identical splits (e.g. 44 vs 39 ShapeNet base for SN→CO3D).
 Pick one protocol and cite it; do not mix numbers across papers.
@@ -20,7 +17,7 @@ from typing import Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FSCIL3D_ROOT = REPO_ROOT / "external" / "FSCIL-3D"
-INDEX_ROOT = FSCIL3D_ROOT / "data" / "index_files"
+MICROSHAPE_INDEX_ROOT = REPO_ROOT / "third_party" / "microshape" / "data" / "index_files"
 
 ProtocolName = Literal[
     "modelnet",
@@ -43,7 +40,7 @@ PROTOCOL_NAMES: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class FSCIL3DProtocol:
-    """Fixed session schedule from FSCIL-3D index files."""
+    """Fixed session schedule: class IDs per session (FSCIL-3D / microshape)."""
 
     name: str
     n_sessions: int
@@ -62,14 +59,28 @@ class FSCIL3DProtocol:
         return self.increment_sizes[0] if self.increment_sizes else 0
 
 
+def get_index_root() -> Path:
+    """FSCIL-3D index files (``external/FSCIL-3D`` or ``third_party/microshape``)."""
+    for candidate in (FSCIL3D_ROOT / "data" / "index_files", MICROSHAPE_INDEX_ROOT):
+        if candidate.is_dir():
+            return candidate
+    raise FileNotFoundError(
+        "FSCIL-3D index files not found. Clone FSCIL-3D into external/FSCIL-3D "
+        "or ensure third_party/microshape/data/index_files/ exists."
+    )
+
+
 def get_fscil3d_root() -> Path:
-    root = FSCIL3D_ROOT
-    if not root.is_dir():
-        raise FileNotFoundError(
-            f"FSCIL-3D not found at {root}. Clone with:\n"
-            "  git clone https://github.com/townim-faisal/FSCIL-3D.git external/FSCIL-3D"
-        )
-    return root
+    if FSCIL3D_ROOT.is_dir():
+        return FSCIL3D_ROOT
+    micro = REPO_ROOT / "third_party" / "microshape"
+    if micro.is_dir() and MICROSHAPE_INDEX_ROOT.is_dir():
+        return micro
+    raise FileNotFoundError(
+        f"FSCIL-3D not found at {FSCIL3D_ROOT}. Clone with:\n"
+        "  git clone https://github.com/townim-faisal/FSCIL-3D.git external/FSCIL-3D\n"
+        "or use vendored third_party/microshape/."
+    )
 
 
 def _class_names_in_session_file(path: Path) -> list[str]:
@@ -141,7 +152,7 @@ def fscil3d_class_order(protocol: str, data_path: str | None = None) -> list[int
 def _protocol_from_index_files(
     name: str, name_to_id: dict[str, int] | None = None
 ) -> FSCIL3DProtocol:
-    train_dir = INDEX_ROOT / name / "train"
+    train_dir = get_index_root() / name / "train"
     if not train_dir.is_dir():
         raise FileNotFoundError(f"Missing index files: {train_dir}")
 

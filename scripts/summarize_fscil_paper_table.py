@@ -51,9 +51,73 @@ CAMPAIGNS_FLEX_COMPARE: tuple[tuple[str, str, str, int], ...] = (
     ),
 )
 
+CAMPAIGNS_SIMPL_RUNS: tuple[tuple[str, str, str, int], ...] = (
+    (
+        "ModelNet40",
+        "_experiments/00_SIMPL_RUNs",
+        "seel_mn40_simpl_runs",
+        5,
+    ),
+    (
+        "ShapeNet55",
+        "_experiments/00_SIMPL_RUNs",
+        "seel_sn55_simpl_runs",
+        7,
+    ),
+)
+
+CAMPAIGNS_SIMPL_RUNS_AUG_SGD: tuple[tuple[str, str, str, int], ...] = (
+    (
+        "ModelNet40",
+        "_experiments/00_SIMPL_RUNs_aug_sgd",
+        "seel_mn40_aug_sgd",
+        5,
+    ),
+    (
+        "ShapeNet55",
+        "_experiments/00_SIMPL_RUNs_aug_sgd",
+        "seel_sn55_aug_sgd",
+        7,
+    ),
+)
+
+CAMPAIGNS_SIMPL_RUNS_EP10: tuple[tuple[str, str, str, int], ...] = (
+    (
+        "ModelNet40",
+        "_experiments/00_SIMPL_RUNs_ep10",
+        "seel_mn40_ep10",
+        5,
+    ),
+    (
+        "ShapeNet55",
+        "_experiments/00_SIMPL_RUNs_ep10",
+        "seel_sn55_ep10",
+        7,
+    ),
+)
+
+CAMPAIGNS_SIMPL_RUNS_EP10_EP5: tuple[tuple[str, str, str, int], ...] = (
+    (
+        "ModelNet40",
+        "_experiments/00_SIMPL_RUNs_ep10_ep5",
+        "seel_mn40_ep10_ep5",
+        5,
+    ),
+    (
+        "ShapeNet55",
+        "_experiments/00_SIMPL_RUNs_ep10_ep5",
+        "seel_sn55_ep10_ep5",
+        7,
+    ),
+)
+
 CAMPAIGN_CHOICES = {
     "fscil_style": CAMPAIGNS,
-    "flex_compare": CAMPAIGNS_FLEX_COMPARE,
+    "simpl_runs": CAMPAIGNS_SIMPL_RUNS,
+    "simpl_runs_ep10": CAMPAIGNS_SIMPL_RUNS_EP10,
+    "simpl_runs_ep10_ep5": CAMPAIGNS_SIMPL_RUNS_EP10_EP5,
+    "simpl_runs_aug_sgd": CAMPAIGNS_SIMPL_RUNS_AUG_SGD,
+    "flex_compare": CAMPAIGNS_FLEX_COMPARE,  # legacy logs under _experiments/flex_compare/
 }
 
 REF_KEYS = {
@@ -62,10 +126,10 @@ REF_KEYS = {
 }
 
 FOOTNOTE = (
-    "Protocol notes: FSCIL-3D **class order** (fixed session splits); "
+    "Protocol notes: **microshape / FSCIL-3D session schedule** (fixed class IDs per session); "
     "5-shot increments with 1-shot old-class replay; frozen Uni3D-b backbone. "
-    "We use FPS point clouds + random 5-shot subsampling, not FSCIL-3D `.pt` index samples — "
-    "numbers are comparable in split schedule but not sample-identical to 3D-FLEG."
+    "We use FPS point clouds + random 5-shot subsampling from our caches — "
+    "same class IDs and sessions as microshape, not sample-identical to 3D-FLEG."
 )
 
 
@@ -159,7 +223,19 @@ def main() -> None:
     )
     args = parser.parse_args()
     campaigns = CAMPAIGN_CHOICES[args.campaign]
-    if args.campaign == "flex_compare":
+    if args.campaign == "simpl_runs":
+        default_out = REPO / "_experiments/00_SIMPL_RUNs/results_table.md"
+        title_suffix = "SIMPL_RUNs / FSCIL-3D class order"
+    elif args.campaign == "simpl_runs_aug_sgd":
+        default_out = REPO / "_experiments/00_SIMPL_RUNs_aug_sgd/results_table.md"
+        title_suffix = "SIMPL_RUNs aug+SGD / FSCIL-3D class order"
+    elif args.campaign == "simpl_runs_ep10":
+        default_out = REPO / "_experiments/00_SIMPL_RUNs_ep10/results_table.md"
+        title_suffix = "SIMPL_RUNs ep10 all tasks / FSCIL-3D class order"
+    elif args.campaign == "simpl_runs_ep10_ep5":
+        default_out = REPO / "_experiments/00_SIMPL_RUNs_ep10_ep5/results_table.md"
+        title_suffix = "SIMPL_RUNs ep10 t0 + ep5 incr / FSCIL-3D class order"
+    elif args.campaign == "flex_compare":
         default_out = REPO / "_experiments/flex_compare/results_table.md"
         title_suffix = "flex_compare / FSCIL-3D class order"
     else:

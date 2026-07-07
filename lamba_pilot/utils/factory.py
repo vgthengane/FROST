@@ -1,7 +1,15 @@
 import importlib.util
 from pathlib import Path
 
-POINTCLOUD_DATASETS = {"modelnet40"}
+POINTCLOUD_DATASETS = {
+    "modelnet40",
+    "shapenet53",
+    "shapenet55",
+    "co3d",
+    "scanobjectnn",
+    "modelnet_scanobjectnn",
+    "shapenet_scanobjectnn",
+}
 
 # Repo-root models/ holds 3D learners (not a lamba_pilot subpackage).
 _3D_METHODS = {
@@ -15,6 +23,7 @@ _3D_METHODS = {
     "ranpac",
     "slca",
     "aper_adapter",
+    "selfevo",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -1,9 +1,8 @@
 # FSCIL canonical experiment track
 
-**Primary method focus:** SelfEvo `ridge_cache` on **FSCIL-3D class order** (few-shot incremental).
+**Primary method focus:** SelfEvo `ridge_cache` on **FSCIL-3D session schedule** (few-shot incremental).
 
-**Reference upstream:** `external/FSCIL-3D/` (ECCV 2022). Index files:
-`external/FSCIL-3D/data/index_files/<protocol>/{train,test}/session_*.txt`
+**Protocol alignment:** same **class IDs** and **per-session splits** as microshape / FSCIL-3D (ECCV 2022). We do not require the same training samples — only the same which classes appear in which session.
 
 **Code integration:**
 - `datasets/fscil3d_index.py` — protocol metadata, class order per session
@@ -34,30 +33,33 @@
 - Metrics: **AA**, **Last**, **Δ** (session-0 total acc − final total acc), **Base@Last**, harmonic (trainer logs)
 - Class order: **fixed** (`shuffle: false`, `fscil3d_protocol` set)
 
-### Important caveat vs 3D-FLEG paper
+### Important caveat vs microshape / 3D-FLEG
 
-We match **FSCIL-3D session class order** and shot counts, but sample **FPS point clouds + random 5-shot subsampling** from our caches — not FSCIL-3D’s prebuilt `.pt` index tensors. Compare split schedule, not sample identity.
+We match **session schedule and class IDs** (and shot counts). Training uses **FPS point clouds + random 5-shot subsampling** from our caches — not microshape's data loader. Compare sessions and class IDs, not individual samples.
 
 ---
 
-## Canonical launcher (flex_compare)
+## Canonical launcher (simpl_runs)
 
 ```bash
-sbatch scripts/flex_compare.sh              # MN40 + SN55
-sbatch scripts/flex_compare.sh --mn40-only
-bash scripts/flex_compare.sh --local --sn55-only
+sbatch scripts/simpl_runs.sh              # MN40 + SN55
+sbatch scripts/simpl_runs.sh --mn40-only
+bash scripts/simpl_runs.sh --local --sn55-only
 ```
 
 | Item | Path |
 |------|------|
-| Logs | `_experiments/flex_compare/<method>_seed=<seed>.log` |
-| Methods | `seel_mn40_flex_compare`, `seel_sn55_flex_compare` |
-| Summary | `_experiments/flex_compare/results_table.md` |
-| Per-dataset MD | `_experiments/flex_compare/results.md` |
+| Logs | `_experiments/00_SIMPL_RUNs/<method>_seed=<seed>.log` |
+| Methods | `seel_mn40_simpl_runs`, `seel_sn55_simpl_runs` |
+| Summary | `_experiments/00_SIMPL_RUNs/results_table.md` |
+| Per-dataset MD | `_experiments/00_SIMPL_RUNs/results.md` |
+| Task-0 ckpts | `_experiments/00_SIMPL_RUNs/<method>/task0_warmup_seed=<seed>/{best,last}.pt` |
 
-**Current results (seed 2008):** MN40 Last 90.96 (+3.66 vs 3D-FLEG); SN55 Last 88.67 (+5.67 vs 3D-FLEG).
+**Legacy logs** (pre-rename): `_experiments/flex_compare/` — summarize with `--campaign flex_compare`.
 
-### Main method config knobs (flex_compare)
+**Current results (seed 2008, legacy path):** MN40 Last 90.96 (+3.66 vs 3D-FLEG); SN55 Last 88.67 (+5.67 vs 3D-FLEG).
+
+### Main method config knobs (simpl_runs)
 
 - `classifier_mode: ridge_cache`, `ridge_cache_alpha: 0.85` (lower on few-shot sessions via `fscil_increment_ridge_alpha`)
 - `fscil_shot_protocol: true`, adapter warmup task-0 + increments
@@ -92,7 +94,7 @@ Defined in `fscil3d_index.py`; need dataset loaders + configs.
 **Next engineering steps:**
 1. ScanObjectNN or CO3D dataloader aligned to FSCIL-3D index paths
 2. `configs/selfevo_fscil_*_<protocol>_flex_compare.json` mirroring MN40/SN55 layout
-3. Extend `flex_compare.sh` or add `scripts/fscil_cross.sh`
+3. Extend `simpl_runs.sh` or add `scripts/fscil_cross.sh`
 4. Multi-seed FSCIL campaign (`1947,1991,2001,2008,2019`) + RanPAC FSCIL-3D baseline (`configs/ranpac_fscil_mn40_5t_fscil3d.json`)
 
 ---

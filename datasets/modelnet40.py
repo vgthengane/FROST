@@ -1,5 +1,6 @@
 """ModelNet40 loader for the PILOT DataManager (3D point clouds)."""
 
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,6 +26,15 @@ class iModelNet40(object):
         self.train_targets = None
         self.test_data = None
         self.test_targets = None
+
+    @staticmethod
+    def shape_names(data_path: str) -> list[str]:
+        """Canonical ModelNet40 class names (alphabetical file order = default label ids)."""
+        root = Path(data_path)
+        if not root.is_absolute():
+            root = REPO_ROOT / root
+        catfile = root / "modelnet40_shape_names.txt"
+        return [line.rstrip() for line in catfile.read_text().splitlines() if line.strip()]
 
     def download_data(self):
         data_path = self.args.get(
@@ -54,6 +64,15 @@ class iModelNet40(object):
         self.train_data, self.train_targets = self._load_split(train_loader, "train")
         self.test_data, self.test_targets = self._load_split(test_loader, "test")
 
+        self.class_order = list(range(int(self.args.get("num_category", 40))))
+        protocol = self.args.get("fscil3d_protocol")
+        if protocol:
+            from datasets.fscil3d_index import fscil3d_class_order, protocol_summary
+
+            self.class_order = fscil3d_class_order(protocol, data_path=data_path)
+            logging.info(protocol_summary(protocol, data_path=data_path))
+            logging.info("FSCIL-3D class_order: %s", self.class_order)
+
         if any(k in self.args for k in ("max_classes", "max_train_per_class", "max_test_per_class")):
             self._apply_subsample_limits()
 
@@ -68,17 +87,19 @@ class iModelNet40(object):
         max_train = int(self.args.get("max_train_per_class", 10**9))
         max_test = int(self.args.get("max_test_per_class", 10**9))
 
+        active_classes = list(self.class_order)[:max_classes]
         self.train_data, self.train_targets = self._subsample_split(
-            self.train_data, self.train_targets, max_classes, max_train, rng
+            self.train_data, self.train_targets, active_classes, max_train, rng
         )
         self.test_data, self.test_targets = self._subsample_split(
-            self.test_data, self.test_targets, max_classes, max_test, rng
+            self.test_data, self.test_targets, active_classes, max_test, rng
         )
+        self.class_order = active_classes
 
     @staticmethod
-    def _subsample_split(data, targets, max_classes, max_per_class, rng):
+    def _subsample_split(data, targets, class_ids, max_per_class, rng):
         keep_idx = []
-        for cls in range(max_classes):
+        for cls in class_ids:
             cls_idx = np.where(targets == cls)[0]
             if len(cls_idx) == 0:
                 continue

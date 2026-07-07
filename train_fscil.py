@@ -309,7 +309,9 @@ def main():
         args["save_checkpoint"] = True
     if cli.resume:
         args["resume"] = True
-        args["save_checkpoint"] = True
+        # FSCIL: task-0 warmup lives under task0_warmup_seed=*; do not save tasks 1+.
+        if not (args.get("fscil_shot_protocol") or args.get("fscil3d_protocol")):
+            args["save_checkpoint"] = True
     if cli.warm_start_checkpoint:
         path = Path(cli.warm_start_checkpoint)
         if not path.is_absolute():
