@@ -38,10 +38,12 @@ def _load_module(name: str, filename: str):
 _key_cache_mod = _load_module("key_cache", "key_cache.py")
 _rl_mod = _load_module("rl_evolver", "rl_evolver.py")
 _ridge_mod = _load_module("ridge_head", "ridge_head.py")
+_fscil_cfg_mod = _load_module("fscil_ablation_config", "fscil_ablation_config.py")
 _text_mod = _load_module("text_prototype_head", "text_prototype_head.py")
 KeyCache = _key_cache_mod.KeyCache
 RLEvolutionAgent = _rl_mod.RLEvolutionAgent
 RidgeHead = _ridge_mod.RidgeHead
+prepare_fscil_args = _fscil_cfg_mod.prepare_fscil_args
 TextPrototypeHead = _text_mod.TextPrototypeHead
 ordered_class_names = _text_mod.ordered_class_names
 build_confusion_matrix = _rl_mod.build_confusion_matrix
@@ -63,30 +65,21 @@ class Learner(BaseLearner):
     """Frozen backbone + key-cache with optional ridge head and evolution."""
 
     def __init__(self, args):
-        args = dict(args)
+        args, self._modules = prepare_fscil_args(dict(args))
         self.fscil_shot_protocol = bool(args.get("fscil_shot_protocol", False))
-        if self.fscil_shot_protocol:
-            args.setdefault("increment_train_per_class", 5)
-            args.setdefault("task0_adapter_warmup", True)
-            args.setdefault("conflict_replay", True)
-            args.setdefault("conflict_replay_on_test", True)
-            args.setdefault("fscil_old_shot_replay", 1)
-            args.setdefault("fscil_cluster_new_classes", True)
-            args.setdefault("fscil_increment_ridge_alpha", 0.55)
-            args.setdefault("fscil_shot_prototypes", False)
-            args.setdefault("fscil_classifier_warmup_after_protos", False)
-            args.setdefault("old_data_source", "cache")
-            args.setdefault("replay_max_classes", 12)
-            args.setdefault("novel_replay_max_classes", 5)
-            args.setdefault("increment_adapter_warmup", True)
-            args.setdefault("increment_tuned_epoch", 3)
-            if args.get("max_train_per_class") is not None:
-                logging.info(
-                    "fscil_shot_protocol: ignoring global max_train_per_class=%s "
-                    "(task 0 uses full data; later tasks use increment_train_per_class)",
-                    args.pop("max_train_per_class"),
-                )
-        self.task0_adapter_warmup = bool(args.get("task0_adapter_warmup", False))
+        if self.fscil_shot_protocol and bool(args.get("fscil_adapter_base_only", False)):
+            logging.info(
+                "fscil_adapter_base_only: task0_warmup=%s increment_warmup=%s",
+                self._modules.adapter.task0_warmup,
+                self._modules.adapter.increment_warmup,
+            )
+        if args.get("max_train_per_class") is not None and self.fscil_shot_protocol:
+            logging.info(
+                "fscil_shot_protocol: ignoring global max_train_per_class=%s "
+                "(task 0 uses full data; later tasks use increment_train_per_class)",
+                args.pop("max_train_per_class"),
+            )
+        self.task0_adapter_warmup = self._modules.adapter.task0_warmup
         if self.task0_adapter_warmup:
             if "_adapter" not in str(args.get("backbone_type", "")):
                 args["backbone_type"] = "uni3d_base_patch14_448_adapter"
@@ -97,6 +90,7 @@ class Learner(BaseLearner):
             args.setdefault("min_lr", 0.0)
             args.setdefault("optimizer", "sgd")
         super().__init__(args)
+        self._task0_best_adapter_state: dict | None = None
         self._network = SimpleVitNet(self.args, True)
         if self.task0_adapter_warmup:
             self._set_adapter_warmup_trainable(train_fc=True)
@@ -105,7 +99,7 @@ class Learner(BaseLearner):
         self.rl_agent = None
         self.ridge_head = None
 
-        policy = str(args.get("evolution_policy", "rules"))
+        policy = self._modules.evolution.policy
         if policy == "rl":
             self.rl_agent = RLEvolutionAgent(
                 max_classes=int(args.get("num_category", 40)),
@@ -116,35 +110,24 @@ class Learner(BaseLearner):
                 reward_cache_penalty=float(args.get("rl_cache_penalty", 0.05)),
             )
 
-        self.classifier_mode = str(args.get("classifier_mode", "cache"))
-        self._uses_ridge = self.classifier_mode in (
-            "ridge",
-            "ridge_cache",
-            "ridge_ncm",
-            "ridge_text",
-            "ridge_cache_text",
-        )
+        self.classifier_mode = self._modules.classifier.mode
+        self._uses_ridge = self._modules.classifier.uses_ridge
         self._uses_text = self.classifier_mode in (
             "text",
             "ridge_text",
             "ridge_cache_text",
         )
         self.text_fusion_gamma = float(args.get("text_fusion_gamma", 0.10))
-        self.conflict_replay = bool(args.get("conflict_replay", False))
-        self.conflict_replay_on_test = bool(args.get("conflict_replay_on_test", False))
-        self.fscil_old_shot_replay = int(args.get("fscil_old_shot_replay", 0))
-        self.increment_adapter_warmup = bool(args.get("increment_adapter_warmup", False))
-        self.replay_weight = float(args.get("replay_weight", 2.0))
-        self.novel_replay_weight = float(args.get("novel_replay_weight", 3.0))
-        self.replay_recall_threshold = float(
-            args.get("replay_recall_threshold", args.get("recall_refresh_threshold", 0.85))
-        )
-        self.ridge_cache_alpha = float(args.get("ridge_cache_alpha", 0.85))
+        cr = self._modules.conflict_replay
+        self.conflict_replay = cr.enabled
+        self.conflict_replay_on_test = cr.use_test_confusion_matrix
+        self.replay_weight = cr.old_weight
+        self.novel_replay_weight = cr.novel_weight
+        self.replay_recall_threshold = cr.old_recall_threshold
+        self.increment_adapter_warmup = self._modules.adapter.increment_warmup
+        self.ridge_cache_alpha = self._modules.classifier.ridge_cache_alpha
         self._ncm_prototypes: torch.Tensor | None = None
         self._apply_low_shot_blend(args)
-        # Source of old-class signals used by refresh/replay.
-        # "cache" avoids revisiting full historical train data each task.
-        self.old_data_source = str(args.get("old_data_source", "cache")).lower()
 
         if self._uses_ridge:
             seed_val = args.get("seed", 0)
@@ -328,6 +311,7 @@ class Learner(BaseLearner):
         )
         if best_state is None:
             logging.warning("Task 0 warmup: no best checkpoint tracked; using last weights")
+            self._save_task0_adapter_anchor()
             return
         self._save_task0_warmup_state(
             "best",
@@ -344,6 +328,68 @@ class Learner(BaseLearner):
                 best_epoch,
                 best_test_acc,
             )
+        else:
+            self._unwrap_network().load_state_dict(last_state, strict=True)
+        self._save_task0_adapter_anchor()
+
+    @staticmethod
+    def _adapter_anchor_slice(state_dict: dict) -> dict:
+        """Backbone-only weights for task-0 anchor (excludes ``fc`` head sized per task)."""
+        return {
+            k: copy.deepcopy(v)
+            for k, v in state_dict.items()
+            if k.startswith("backbone.")
+        }
+
+    def _save_task0_adapter_anchor(self) -> None:
+        """Keep task-0 adapter weights to restore before increment warmup."""
+        self._task0_best_adapter_state = self._adapter_anchor_slice(
+            self._unwrap_network().state_dict()
+        )
+        logging.info("Task 0 adapter anchor saved for increment warmup restore")
+
+    def _restore_task0_adapter_anchor_if_needed(self) -> None:
+        """Start increment warmup from the task-0 best adapter, not drifted weights."""
+        if self._cur_task <= 0:
+            return
+        if not bool(
+            self.args.get("fscil_restore_task0_adapter_before_increment_warmup", True)
+        ):
+            return
+        if self._task0_best_adapter_state is None:
+            logging.warning(
+                "Increment warmup task=%d: task-0 adapter anchor missing; "
+                "continuing from current weights",
+                self._cur_task,
+            )
+            return
+        current = self._unwrap_network().state_dict()
+        to_load = {
+            k: v
+            for k, v in self._task0_best_adapter_state.items()
+            if k in current and current[k].shape == v.shape
+        }
+        if not to_load:
+            logging.warning(
+                "Increment warmup task=%d: no matching backbone keys in task-0 anchor",
+                self._cur_task,
+            )
+            return
+        self._unwrap_network().load_state_dict(to_load, strict=False)
+        logging.info(
+            "Increment warmup task=%d: restored task-0 best adapter anchor (%d keys)",
+            self._cur_task,
+            len(to_load),
+        )
+
+    def _increment_adapter_warmup_enabled(self) -> bool:
+        if self._cur_task <= 0:
+            return False
+        if bool(self.args.get("fscil_adapter_base_only", False)):
+            return bool(self.args.get("fscil_task1_adapter_warmup", False)) and (
+                self._cur_task == 1
+            )
+        return bool(self.increment_adapter_warmup)
 
     def _init_adapter_train(
         self, train_loader, test_loader, tuned_epoch: int | None = None
@@ -464,6 +510,14 @@ class Learner(BaseLearner):
                 best_state=best_state,
                 last_state=copy.deepcopy(self._unwrap_network().state_dict()),
             )
+        elif self._cur_task == 0 and self.task0_adapter_warmup:
+            self._save_task0_adapter_anchor()
+        if self._cur_task > 0:
+            logging.info(
+                "Increment warmup task=%d: using last-epoch adapter weights (epoch=%d)",
+                self._cur_task,
+                tuned_epoch,
+            )
 
     def _init_classifier_warmup_train(
         self, train_loader, test_loader, tuned_epoch: int
@@ -528,6 +582,12 @@ class Learner(BaseLearner):
             )
             prog_bar.set_description(info)
         logging.info(info)
+        if self._cur_task > 0:
+            logging.info(
+                "Increment clf-warmup task=%d: using last-epoch adapter weights (epoch=%d)",
+                self._cur_task,
+                tuned_epoch,
+            )
 
     def _classifier_warmup_test_acc(self, test_loader) -> float:
         self._network.eval()
@@ -656,12 +716,16 @@ class Learner(BaseLearner):
             self._network = self._network.module
 
     def _collect_old_class_embeddings(self, data_manager, bs: int) -> dict:
-        """Old-class embeddings for refresh/replay from cache or dataset."""
+        """Old-class embedding proxies for adaptation / conflict replay (not raw buffer)."""
         old_embeddings = {}
         if self._known_classes <= 0:
             return old_embeddings
 
-        if self.old_data_source == "cache":
+        proxies = self._modules.old_class_proxies
+        if proxies.disabled:
+            return old_embeddings
+
+        if proxies.use_cache:
             if self.cache.size == 0:
                 return old_embeddings
             labels = self.cache.labels.detach().cpu()
@@ -672,15 +736,15 @@ class Learner(BaseLearner):
                     old_embeddings[cls] = keys[mask]
             return old_embeddings
 
-        if self.fscil_shot_protocol:
-            shots = self._fscil_old_shot_budget()
+        buf = self._modules.exemplar_buffer
+        if self.fscil_shot_protocol and buf.shots_per_old_class > 0:
             emb, lbl = self._collect_class_train_embeddings(
                 data_manager,
                 0,
                 self._known_classes,
-                shots,
+                buf.shots_per_old_class,
                 cache_role="old_replay",
-                role_seed=self._fscil_old_shot_role_seed(),
+                role_seed=buf.shot_seed,
             )
             if emb.numel() == 0:
                 return old_embeddings
@@ -755,7 +819,7 @@ class Learner(BaseLearner):
         return torch.cat([embeddings, aug_emb], dim=0), torch.cat([labels, labels], dim=0)
 
     def _uses_cache_inference(self) -> bool:
-        return self.classifier_mode in ("cache", "ridge_cache", "ridge_cache_text")
+        return self._modules.classifier.uses_cache_inference
 
     def _ensure_ncm_prototypes(self) -> None:
         if self._ncm_prototypes is not None:
@@ -795,15 +859,8 @@ class Learner(BaseLearner):
         proto = F.normalize(means, dim=-1)
         return feat @ proto.T
 
-    def _fscil_old_shot_budget(self) -> int:
-        """Per-class shot cap for old-class access under the FSCIL protocol."""
-        return int(self.args.get("fscil_old_shot_replay", 1))
-
-    def _fscil_old_shot_role_seed(self) -> int:
-        seed_val = self.args.get("seed", 1993)
-        if isinstance(seed_val, list):
-            seed_val = seed_val[0]
-        return int(self.args.get("fscil_old_shot_replay_seed", int(seed_val)))
+    def _exemplar_buffer_shot_seed(self) -> int:
+        return self._modules.exemplar_buffer.shot_seed
 
     def _collect_class_train_embeddings(
         self,
@@ -825,7 +882,7 @@ class Learner(BaseLearner):
         bs = int(self.args.get("batch_size", 128))
         if role_seed is None:
             role_seed = (
-                self._fscil_old_shot_role_seed()
+                self._exemplar_buffer_shot_seed()
                 if cache_role == "old_replay"
                 else int(self.args.get("fscil_base_ridge_refresh_seed", int(seed_val)))
             )
@@ -851,8 +908,8 @@ class Learner(BaseLearner):
             return torch.empty(0, self.feature_dim), torch.empty(0, dtype=torch.long)
         return torch.cat(emb_parts, dim=0), torch.cat(label_parts, dim=0)
 
-    def _refresh_ridge_from_base_train(self) -> int:
-        """Re-anchor ridge head with fresh base-class train embeddings."""
+    def _refresh_ridge_from_exemplar_buffer(self) -> int:
+        """Re-anchor ridge on old-class embeddings from the exemplar buffer (disk)."""
         if (
             self.ridge_head is None
             or not self.fscil_shot_protocol
@@ -860,39 +917,40 @@ class Learner(BaseLearner):
             or self._known_classes <= 0
         ):
             return 0
-        shots = int(self.args.get("fscil_base_ridge_refresh_per_class", 0))
+        buf = self._modules.exemplar_buffer
+        shots = buf.ridge_refresh_shots_per_old_class
         if shots <= 0:
             return 0
-        shot_cap = self._fscil_old_shot_budget()
-        if shots > shot_cap:
+        shot_cap = buf.shots_per_old_class
+        if shots > shot_cap and shot_cap > 0:
             logging.warning(
-                "fscil_base_ridge_refresh_per_class=%d capped to %d "
-                "(fscil_old_shot_replay; few-shot protocol)",
+                "exemplar_buffer_ridge_refresh_shots=%d capped to %d "
+                "(exemplar_buffer_shots)",
                 shots,
                 shot_cap,
             )
             shots = shot_cap
-        base_emb, base_lbl = self._collect_class_train_embeddings(
+        old_emb, old_lbl = self._collect_class_train_embeddings(
             self.data_manager,
             0,
             self._known_classes,
             shots,
             cache_role="old_replay",
-            role_seed=self._fscil_old_shot_role_seed(),
+            role_seed=buf.shot_seed,
         )
-        if base_emb.numel() == 0:
+        if old_emb.numel() == 0:
             return 0
-        weight = float(self.args.get("fscil_base_ridge_refresh_weight", 1.0))
-        self.ridge_head.update(base_emb, base_lbl, weight=weight)
+        weight = buf.ridge_refresh_weight
+        self.ridge_head.update(old_emb, old_lbl, weight=weight)
         logging.info(
-            "Base ridge refresh task=%d classes=0-%d shots/class=%d n=%d weight=%.2f",
+            "Exemplar-buffer ridge refresh task=%d classes=0-%d shots/class=%d n=%d weight=%.2f",
             self._cur_task,
             self._known_classes - 1,
             shots,
-            int(base_emb.shape[0]),
+            int(old_emb.shape[0]),
             weight,
         )
-        return int(base_emb.shape[0])
+        return int(old_emb.shape[0])
 
     def _sync_text_prototypes(self, data_manager, num_classes: int) -> None:
         if self.text_head is None:
@@ -993,12 +1051,13 @@ class Learner(BaseLearner):
     def _run_adapter_warmup_if_needed(self, train_loader, test_loader) -> None:
         """SGD on adapter+fc using the task's labeled train split."""
         run_task0 = self.task0_adapter_warmup and self._cur_task == 0
-        run_increment = self.increment_adapter_warmup and self._cur_task > 0
+        run_increment = self._increment_adapter_warmup_enabled()
         if not (run_task0 or run_increment):
             return
         if (
             run_increment
             and bool(self.args.get("fscil_classifier_warmup_after_protos", False))
+            and not bool(self.args.get("fscil_increment_warmup_pre_and_post", False))
         ):
             return
         if not hasattr(self._network.backbone, "adaptmlp"):
@@ -1007,8 +1066,10 @@ class Learner(BaseLearner):
                 self._cur_task,
             )
             return
+        if run_increment:
+            self._restore_task0_adapter_anchor_if_needed()
         epochs = int(
-            self.args.get("increment_tuned_epoch", 3)
+            self._increment_warmup_epochs()
             if self._cur_task > 0
             else self.args.get("tuned_epoch", 5)
         )
@@ -1022,8 +1083,7 @@ class Learner(BaseLearner):
         """Few-shot adapter SGD on ridge/cache logits after prototypes exist."""
         if not (
             self.fscil_shot_protocol
-            and self._cur_task > 0
-            and self.increment_adapter_warmup
+            and self._increment_adapter_warmup_enabled()
             and bool(self.args.get("fscil_classifier_warmup_after_protos", False))
         ):
             return
@@ -1040,6 +1100,7 @@ class Learner(BaseLearner):
                 self._cur_task,
             )
             return
+        self._restore_task0_adapter_anchor_if_needed()
         epochs = self._increment_warmup_epochs()
         self._set_adapter_warmup_trainable(train_fc=False)
         self._init_classifier_warmup_train(train_loader, test_loader, tuned_epoch=epochs)
@@ -1113,7 +1174,7 @@ class Learner(BaseLearner):
             )
 
         if self.ridge_head is not None:
-            self._refresh_ridge_from_base_train()
+            self._refresh_ridge_from_exemplar_buffer()
             ridge_weight = 1.0
             ridge_embeddings, ridge_labels = embeddings, labels
             if self.fscil_shot_protocol and self._cur_task > 0:
@@ -1216,8 +1277,9 @@ class Learner(BaseLearner):
                         self._total_classes,
                     )
 
-                old_replay_max = int(self.args.get("replay_max_classes", 5))
-                novel_replay_max = int(self.args.get("novel_replay_max_classes", 5))
+                cr = self._modules.conflict_replay
+                old_replay_max = cr.max_old_classes
+                novel_replay_max = cr.max_novel_classes
                 if self._is_last_fscil_task():
                     old_replay_max = int(
                         self.args.get(

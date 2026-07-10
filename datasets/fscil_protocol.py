@@ -171,10 +171,17 @@ def prepare_fscil_task_datasets(
         proto_dataset, int(incr_cap), subsample_seed, cache_role="incr"
     )
 
-    old_shots = int(args.get("fscil_old_shot_replay", 0))
+    old_shots = int(
+        args.get("exemplar_buffer_shots", args.get("fscil_old_shot_replay", 0))
+    )
     if old_shots > 0:
-        # Old-class replay: same exemplars on every task (not re-drawn per task).
-        replay_seed = int(args.get("fscil_old_shot_replay_seed", int(seed_val)))
+        # Exemplar buffer: same raw train indices on every task (not re-drawn per task).
+        replay_seed = int(
+            args.get(
+                "exemplar_buffer_seed",
+                args.get("fscil_old_shot_replay_seed", int(seed_val)),
+            )
+        )
         train_dataset = append_old_class_shots(
             train_dataset, data_manager, known_classes, old_shots, replay_seed
         )

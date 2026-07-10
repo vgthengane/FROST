@@ -12,7 +12,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=_experiments/slurm_logs/%A_%a_baseonly_bf.out
 
-# Base-only adapter + buffer-free (seed 2008).
+# Base-only adapter + exemplar-buffer-free preset (seed 2008).
 #
 # Adapter SGD only on task 0 (base session). Increment sessions: frozen backbone,
 # ridge/cache update only — no increment adapter warmup, no old-class disk re-read.
