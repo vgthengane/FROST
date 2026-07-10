@@ -9,6 +9,7 @@ POINTCLOUD_DATASETS = {
     "scanobjectnn",
     "modelnet_scanobjectnn",
     "shapenet_scanobjectnn",
+    "shapenet_co3d",
 }
 
 # Repo-root models/ holds 3D learners (not a lamba_pilot subpackage).
@@ -24,6 +25,7 @@ _3D_METHODS = {
     "slca",
     "aper_adapter",
     "selfevo",
+    "selfevo_bufferfree",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

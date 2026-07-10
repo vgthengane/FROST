@@ -35,7 +35,12 @@ def get_backbone(args, pretrained=False):
 
     if "_adapter" in name:
         ffn_num = args["ffn_num"]
-        if args["model_name"] in ("aper_adapter", "ranpac", "selfevo"):
+        if args["model_name"] in (
+            "aper_adapter",
+            "ranpac",
+            "selfevo",
+            "selfevo_bufferfree",
+        ):
             from backbone import uni3d_adapter
             from easydict import EasyDict
             tuning_config = EasyDict(
