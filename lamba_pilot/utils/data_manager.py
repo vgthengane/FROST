@@ -270,6 +270,10 @@ def _get_idata(dataset_name, args=None):
         from datasets.cross_scanobjectnn import iCrossScanObjectNN
 
         return iCrossScanObjectNN(args)
+    elif name == "shapenet_co3d":
+        from datasets.cross_co3d import iCrossCO3D
+
+        return iCrossCO3D(args)
 
     else:
         raise NotImplementedError("Unknown dataset {}.".format(dataset_name))

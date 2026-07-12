@@ -31,6 +31,7 @@ from pathlib import Path
 AVG_RE = re.compile(r"Average Accuracy \(CNN\):\s*([\d.]+)")
 CURVE_RE = re.compile(r"CNN top1 curve:\s*\[([^\]]+)\]")
 BASE_CURVE_RE = re.compile(r"FSCIL base retention curve:\s*\[([^\]]+)\]")
+NOVEL_CURVE_RE = re.compile(r"FSCIL novel accuracy curve:\s*\[([^\]]+)\]")
 HARM_CURVE_RE = re.compile(r"FSCIL harmonic curve:\s*\[([^\]]+)\]")
 CNN_GROUPED_RE = re.compile(r"CNN:\s*(\{[^}]+\})")
 FLAT_LOG_RE = re.compile(r"^(?P<method>.+)_seed=(?P<seed>\d+)\.log$")
@@ -59,6 +60,9 @@ REFERENCE = {
 def infer_expected_sessions(method: str, root_name: str) -> int | None:
     """Infer session count from method or log-root name (MN40=5, SN55=7)."""
     key = f"{method}_{root_name}".lower()
+    if "scanobj" in key or "scanobjectnn" in key:
+        if "4t" in key:
+            return 4
     if "sn55" in key or "shapenet55" in key:
         return 7
     if "mn40" in key or "modelnet40" in key:
@@ -100,8 +104,10 @@ def parse_fscil_log(path: Path, expected_sessions: int | None) -> dict | None:
     top1 = _parse_float_list(curves[-1])
     avgs = [float(v) for v in AVG_RE.findall(text)]
     base_curves = BASE_CURVE_RE.findall(text)
+    novel_curves = NOVEL_CURVE_RE.findall(text)
     harm_curves = HARM_CURVE_RE.findall(text)
     base = _parse_float_list(base_curves[-1]) if base_curves else []
+    novel = _parse_float_list(novel_curves[-1]) if novel_curves else []
     harm = _parse_float_list(harm_curves[-1]) if harm_curves else []
     grouped = _parse_grouped_dict(text)
 
@@ -113,6 +119,7 @@ def parse_fscil_log(path: Path, expected_sessions: int | None) -> dict | None:
         "last": top1[-1] if top1 else None,
         "delta": (top1[0] - top1[-1]) if len(top1) >= 2 else None,
         "base_last": base[-1] if base else None,
+        "novel_last": novel[-1] if novel else grouped.get("novel") if grouped else None,
         "harmonic_last": harm[-1] if harm else None,
         "old_last": grouped.get("old") if grouped else None,
         "new_last": grouped.get("new") if grouped else None,
@@ -151,9 +158,9 @@ def print_method_table(method: str, runs: list[tuple[int, dict]], ref: dict | No
     print(f"\n### {method}\n")
     print(
         f"{'Seed':>6} {'Sess':>4} {'AA':>7} {'Last':>7} "
-        f"{'Δ':>6} {'Base':>7} {'Harm':>7} {'Old':>7} {'New':>7}"
+        f"{'Δ':>6} {'Base':>7} {'Novel':>7} {'Harm':>7} {'Old':>7} {'New':>7}"
     )
-    print("-" * 72)
+    print("-" * 86)
     complete_runs = []
     for seed, m in sorted(runs, key=lambda x: x[0]):
         if not m["complete"]:
@@ -166,6 +173,7 @@ def print_method_table(method: str, runs: list[tuple[int, dict]], ref: dict | No
             f"{m['aa']:>7.2f} {m['last']:>7.2f} "
             f"{m['delta']:>6.2f} "
             f"{(m['base_last'] or 0):>7.2f} "
+            f"{(m['novel_last'] or 0):>7.2f} "
             f"{(m['harmonic_last'] or 0):>7.2f} "
             f"{(m['old_last'] or 0):>7.2f} "
             f"{(m['new_last'] or 0):>7.2f}{flag}"
@@ -178,6 +186,7 @@ def print_method_table(method: str, runs: list[tuple[int, dict]], ref: dict | No
             ("last", "Last"),
             ("delta", "Δ"),
             ("base_last", "Base@Last"),
+            ("novel_last", "Novel@Last"),
             ("harmonic_last", "Harm@Last"),
         ]:
             vals = [r[key] for r in complete_runs if r.get(key) is not None]

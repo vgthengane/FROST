@@ -1114,6 +1114,12 @@ class Learner(BaseLearner):
             return strategy, max_proto
         if bool(self.args.get("fscil_shot_prototypes", False)):
             strategy = "per_sample"
+        elif bool(self.args.get("fscil_mean_close_far_prototypes", False)):
+            strategy = "mean_close_far"
+        elif bool(self.args.get("fscil_mean_nearmean_prototypes", False)):
+            strategy = "mean_nearmean"
+        elif bool(self.args.get("fscil_mean_best2_prototypes", False)):
+            strategy = "mean_best2"
         elif bool(self.args.get("fscil_cluster_new_classes", True)):
             strategy = "cluster"
         incr_cap = int(self.args.get("increment_train_per_class", 5))

@@ -26,6 +26,10 @@ class EvolutionStats:
     val_acc: float = 0.0
     old_acc: float = 0.0
     confusion_peak: float = 0.0
+    per_class_min: int = 0
+    per_class_max: int = 0
+    per_class_mean: float = 0.0
+    n_classes_cached: int = 0
 
 
 @dataclass
@@ -162,6 +166,27 @@ class KeyCache:
                     protos, torch.full((protos.shape[0],), cls, dtype=torch.long, device=self.device)
                 )
                 inserted += int(protos.shape[0])
+            elif self.insert_strategy == "mean_best2" and cls_emb.shape[0] > 0:
+                protos = self._mean_best2_prototypes(cls_emb, n_new)
+                self._append_keys(
+                    protos,
+                    torch.full((protos.shape[0],), cls, dtype=torch.long, device=self.device),
+                )
+                inserted += int(protos.shape[0])
+            elif self.insert_strategy == "mean_close_far" and cls_emb.shape[0] > 0:
+                protos = self._mean_close_far_prototypes(cls_emb, n_new)
+                self._append_keys(
+                    protos,
+                    torch.full((protos.shape[0],), cls, dtype=torch.long, device=self.device),
+                )
+                inserted += int(protos.shape[0])
+            elif self.insert_strategy == "mean_nearmean" and cls_emb.shape[0] > 0:
+                protos = self._mean_nearmean_prototypes(cls_emb, n_new)
+                self._append_keys(
+                    protos,
+                    torch.full((protos.shape[0],), cls, dtype=torch.long, device=self.device),
+                )
+                inserted += int(protos.shape[0])
             else:
                 proto = cls_emb.mean(dim=0)
                 self._append_keys(proto.unsqueeze(0), torch.tensor([cls], device=self.device))
@@ -193,6 +218,62 @@ class KeyCache:
             self.labels = torch.empty(0, dtype=torch.long, device=self.device)
             self.margins = torch.empty(0, device=self.device)
         return self.insert_prototypes(embeddings, labels, np.array(sorted(class_ids)))
+
+    def _mean_best2_prototypes(
+        self, embeddings: torch.Tensor, n_new: int
+    ) -> torch.Tensor:
+        """Class mean plus up to two shots most similar to the mean (representative)."""
+        emb = embeddings.to(self.device)
+        n_slots = max(1, min(int(n_new), 3))
+        mean_proto = emb.mean(dim=0, keepdim=True)
+        if n_slots == 1 or emb.shape[0] == 1:
+            return mean_proto
+        sim = F.cosine_similarity(
+            self._normalize(emb), self._normalize(mean_proto), dim=1
+        )
+        k_best = min(n_slots - 1, 2, emb.shape[0])
+        best_idx = torch.topk(sim, k=k_best, largest=True).indices
+        return torch.cat([mean_proto, emb[best_idx]], dim=0)
+
+    def _mean_close_far_prototypes(
+        self, embeddings: torch.Tensor, n_new: int
+    ) -> torch.Tensor:
+        """Class mean plus one shot closest and one farthest from the mean."""
+        emb = embeddings.to(self.device)
+        n_slots = max(1, min(int(n_new), 3))
+        mean_proto = emb.mean(dim=0, keepdim=True)
+        if n_slots == 1 or emb.shape[0] == 1:
+            return mean_proto
+        sim = F.cosine_similarity(
+            self._normalize(emb), self._normalize(mean_proto), dim=1
+        )
+        close_idx = int(torch.argmax(sim).item())
+        protos = [mean_proto, emb[close_idx].unsqueeze(0)]
+        if n_slots < 3:
+            return torch.cat(protos, dim=0)
+        remaining = [i for i in range(emb.shape[0]) if i != close_idx]
+        if not remaining:
+            return torch.cat(protos, dim=0)
+        rem_t = torch.tensor(remaining, device=self.device)
+        far_local = int(torch.argmin(sim[rem_t]).item())
+        far_idx = remaining[far_local]
+        protos.append(emb[far_idx].unsqueeze(0))
+        return torch.cat(protos, dim=0)
+
+    def _mean_nearmean_prototypes(
+        self, embeddings: torch.Tensor, n_new: int
+    ) -> torch.Tensor:
+        """Class mean plus one shot closest to the mean (no far / evo slot)."""
+        emb = embeddings.to(self.device)
+        n_slots = max(1, min(int(n_new), 2))
+        mean_proto = emb.mean(dim=0, keepdim=True)
+        if n_slots == 1 or emb.shape[0] == 1:
+            return mean_proto
+        sim = F.cosine_similarity(
+            self._normalize(emb), self._normalize(mean_proto), dim=1
+        )
+        close_idx = int(torch.argmax(sim).item())
+        return torch.cat([mean_proto, emb[close_idx].unsqueeze(0)], dim=0)
 
     def _farthest_prototypes(self, embeddings: torch.Tensor, k: int) -> torch.Tensor:
         """Pick diverse class prototypes using farthest-point sampling in embedding space."""
@@ -233,6 +314,72 @@ class KeyCache:
                 if mask.any() and cls < fc.out_features:
                     fc.weight.data[cls] = self.keys[mask][0]
 
+    def _per_class_counts(self) -> dict[int, int]:
+        """Map class id -> number of cache keys (prototypes) for that class."""
+        if self.size == 0:
+            return {}
+        max_label = int(self.labels[: self.size].max().item())
+        counts = torch.bincount(self.labels[: self.size], minlength=max_label + 1)
+        return {
+            cls: int(counts[cls].item())
+            for cls in range(counts.shape[0])
+            if int(counts[cls].item()) > 0
+        }
+
+    def _per_class_count_stats(self) -> tuple[int, int, float, int]:
+        """Return (min, max, mean, n_classes) prototype counts over cached labels."""
+        counts = self._per_class_counts()
+        if not counts:
+            return 0, 0, 0.0, 0
+        vals = list(counts.values())
+        return min(vals), max(vals), sum(vals) / len(vals), len(counts)
+
+    def _apply_per_class_stats(self, stats: EvolutionStats) -> dict[int, int]:
+        """Fill summary fields on ``stats`` and return per-class key counts."""
+        stats.cache_size = self.size
+        counts = self._per_class_counts()
+        if not counts:
+            stats.per_class_min = 0
+            stats.per_class_max = 0
+            stats.per_class_mean = 0.0
+            stats.n_classes_cached = 0
+            return counts
+        vals = list(counts.values())
+        stats.per_class_min = min(vals)
+        stats.per_class_max = max(vals)
+        stats.per_class_mean = sum(vals) / len(vals)
+        stats.n_classes_cached = len(counts)
+        return counts
+
+    def _log_per_class_key_counts(self, task_id: int, stats: EvolutionStats) -> None:
+        """Log per-class key counts: how many prototypes each class has in cache."""
+        counts = self._per_class_counts()
+        if not counts:
+            logging.info(
+                "KeyCache per-class keys task=%d n_classes=0 min=0 max=0 mean=0.00 total=0",
+                task_id,
+            )
+            return
+
+        hist: dict[int, int] = {}
+        for n_keys in counts.values():
+            hist[n_keys] = hist.get(n_keys, 0) + 1
+        hist_str = ",".join(f"{k}x{v}" for k, v in sorted(hist.items()))
+        cls_str = ",".join(f"{cls}:{n}" for cls, n in sorted(counts.items()))
+
+        logging.info(
+            "KeyCache per-class keys task=%d n_classes=%d min=%d max=%d mean=%.2f "
+            "total=%d histogram=%s",
+            task_id,
+            stats.n_classes_cached,
+            stats.per_class_min,
+            stats.per_class_max,
+            stats.per_class_mean,
+            stats.cache_size,
+            hist_str,
+        )
+        logging.info("KeyCache per-class keys task=%d cls_keys=%s", task_id, cls_str)
+
     def evolve(
         self,
         task_id: int,
@@ -248,7 +395,9 @@ class KeyCache:
         stats = EvolutionStats(task=task_id, cache_size=self.size)
         if self.evolution_policy == "static":
             stats.action = "static"
+            self._apply_per_class_stats(stats)
             self.history.append(stats)
+            self._log_per_class_key_counts(task_id, stats)
             return stats
 
         if confusion_matrix is None:
@@ -344,6 +493,7 @@ class KeyCache:
             stats.val_acc = after_metrics["total_acc"]
             stats.old_acc = after_metrics["old_acc"]
         self.history.append(stats)
+        self._apply_per_class_stats(stats)
         logging.info(
             "KeyCache evolve task=%d policy=%s size=%d merges=%d splits=%d "
             "evictions=%d refreshes=%d action=%s old_acc=%.2f total_acc=%.2f peak_conf=%.3f",
@@ -359,6 +509,7 @@ class KeyCache:
             stats.val_acc,
             stats.confusion_peak,
         )
+        self._log_per_class_key_counts(task_id, stats)
         return stats
 
     def _evolve_rl(

@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing as mp
+import os
 import pickle
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +52,33 @@ def export_pt(xyz_fps: np.ndarray, path: Path) -> None:
     torch.save(torch.from_numpy(xyz_fps[:, :3].astype(np.float32)), path)
 
 
+def _process_sample(
+    task: tuple[int, str, str, int, bool, int, int],
+) -> tuple[int, np.ndarray | None, str | None]:
+    """Worker: load ply, FPS + normals. Returns (index, points, error)."""
+    # Open3D + BLAS: avoid oversubscription when multiple processes run in parallel.
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+
+    idx, rel_path, official_root, num_point, use_normals, max_fps_input, seed = task
+    ply_path = index_rel_to_ply(Path(official_root), rel_path)
+    if not ply_path.is_file():
+        return idx, None, f"no_ply:{rel_path}"
+    try:
+        xyz = load_ply_xyz(ply_path)
+        pts = prepare_points(
+            xyz,
+            num_point,
+            use_normals,
+            max_fps_input=max_fps_input,
+            seed=seed,
+        )
+        return idx, pts, None
+    except Exception as exc:
+        return idx, None, f"{rel_path}: {exc}"
+
+
 def build_split(
     *,
     official_root: Path,
@@ -62,6 +92,7 @@ def build_split(
     max_fps_input: int,
     force: bool,
     seed: int,
+    workers: int,
 ) -> dict:
     suffix = "_normal" if use_normals else ""
     cache_path = output_root / f"co3d_{split}_{num_point}pts_fps{suffix}.dat"
@@ -80,30 +111,64 @@ def build_split(
     missing: list[str] = []
     no_ply: list[str] = []
     built = 0
+    built_indices: set[int] = set()
 
-    for i, rel_path in enumerate(tqdm(rel_paths, desc=f"CO3D official {split}")):
+    for i, rel_path in enumerate(rel_paths):
         labels[i] = samples[rel_path]
-        ply_path = index_rel_to_ply(official_root, rel_path)
-        if not ply_path.is_file():
-            no_ply.append(rel_path)
-            continue
-        try:
-            xyz = load_ply_xyz(ply_path)
-            pts = prepare_points(
-                xyz,
-                num_point,
-                use_normals,
-                max_fps_input=max_fps_input,
-                seed=seed + i,
-            )
-        except Exception as exc:
-            missing.append(f"{rel_path}: {exc}")
-            continue
 
-        points[i] = pts
-        built += 1
-        if export_pt_files:
-            export_pt(pts, output_root / rel_path)
+    tasks = [
+        (
+            i,
+            rel_path,
+            str(official_root),
+            num_point,
+            use_normals,
+            max_fps_input,
+            seed + i,
+        )
+        for i, rel_path in enumerate(rel_paths)
+    ]
+
+    desc = f"CO3D official {split} (workers={workers})"
+    if workers <= 1:
+        iterator = (_process_sample(task) for task in tasks)
+        results = tqdm(iterator, total=len(tasks), desc=desc)
+        for idx, pts, err in results:
+            if err is not None:
+                if err.startswith("no_ply:"):
+                    no_ply.append(err[len("no_ply:") :])
+                else:
+                    missing.append(err)
+                continue
+            points[idx] = pts
+            built_indices.add(idx)
+            built += 1
+    else:
+        # fork + Open3D deadlocks; spawn is required on Linux.
+        ctx = mp.get_context("spawn")
+        batch_size = max(workers * 4, workers)
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as pool:
+            pbar = tqdm(total=len(tasks), desc=desc)
+            for start in range(0, len(tasks), batch_size):
+                batch = tasks[start : start + batch_size]
+                futures = [pool.submit(_process_sample, task) for task in batch]
+                for fut in as_completed(futures):
+                    idx, pts, err = fut.result()
+                    if err is not None:
+                        if err.startswith("no_ply:"):
+                            no_ply.append(err[len("no_ply:") :])
+                        else:
+                            missing.append(err)
+                    else:
+                        points[idx] = pts
+                        built_indices.add(idx)
+                        built += 1
+                    pbar.update(1)
+            pbar.close()
+
+    if export_pt_files:
+        for idx in sorted(built_indices):
+            export_pt(points[idx], output_root / rel_paths[idx])
 
     manifest = {
         "split": split,
@@ -111,6 +176,7 @@ def build_split(
         "built": built,
         "no_pointcloud_ply": len(no_ply),
         "errors": len(missing),
+        "workers": workers,
     }
 
     if not allow_partial and (no_ply or missing):
@@ -185,6 +251,12 @@ def main() -> None:
     )
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--seed", type=int, default=2008)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, (os.cpu_count() or 8) - 2),
+        help="Parallel worker processes (default: cpu_count - 2)",
+    )
     args = parser.parse_args()
 
     official_root = args.official_root if args.official_root.is_absolute() else REPO / args.official_root
@@ -198,6 +270,8 @@ def main() -> None:
 
     output_root.mkdir(parents=True, exist_ok=True)
     use_normals = not args.no_normals
+    workers = max(1, int(args.workers))
+    print(f"Workers: {workers}")
 
     train_samples = parse_index_split(index_root, "train")
     test_samples = parse_index_split(index_root, "test")
@@ -218,6 +292,7 @@ def main() -> None:
             max_fps_input=args.max_fps_input,
             force=args.force,
             seed=args.seed,
+            workers=workers,
         )
 
     summary_path = output_root / "co3d_build_summary.json"

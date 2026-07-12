@@ -199,9 +199,16 @@ def _protocol_from_index_files(
 
 
 def _load_shapenet_co3d_config() -> dict:
-    cfg_path = FSCIL3D_ROOT / "configs" / "shapenet_co3d_info.py"
-    if not cfg_path.is_file():
-        raise FileNotFoundError(cfg_path)
+    candidates = (
+        FSCIL3D_ROOT / "configs" / "shapenet_co3d_info.py",
+        REPO_ROOT / "third_party" / "microshape" / "configs" / "shapenet_co3d_info.py",
+    )
+    cfg_path = next((p for p in candidates if p.is_file()), None)
+    if cfg_path is None:
+        raise FileNotFoundError(
+            "shapenet_co3d_info.py not found. Expected one of:\n"
+            + "\n".join(f"  - {p}" for p in candidates)
+        )
     ns: dict = {}
     exec(cfg_path.read_text(), ns)  # noqa: S102 — trusted upstream config
     return ns

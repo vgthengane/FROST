@@ -56,6 +56,26 @@ def _is_fscil_run(args):
     return bool(args.get("fscil_shot_protocol") or args.get("fscil3d_protocol"))
 
 
+def _log_fscil_metric_curves(base_curve, novel_curve, harmonic_curve):
+    """Log per-session base / cumulative novel / harmonic mean curves."""
+    if base_curve:
+        logging.info("FSCIL base retention curve: %s", base_curve)
+    if novel_curve:
+        logging.info("FSCIL novel accuracy curve: %s", novel_curve)
+    if harmonic_curve:
+        logging.info("FSCIL harmonic curve: %s", harmonic_curve)
+
+
+def _append_fscil_metrics(grouped, base_curve, novel_curve, harmonic_curve):
+    """Append FSCIL base/novel/harmonic metrics when present in grouped acc."""
+    if "base" in grouped:
+        base_curve.append(grouped["base"])
+    if "novel" in grouped:
+        novel_curve.append(grouped["novel"])
+    if "harmonic" in grouped:
+        harmonic_curve.append(grouped["harmonic"])
+
+
 def _prune_fscil_non_task0_checkpoints(checkpoint_dir):
     """Remove per-task checkpoints beyond task 0 (e.g. after --resume on Leonardo)."""
     if not os.path.isdir(checkpoint_dir):
@@ -139,6 +159,8 @@ def _train(args):
 
     cnn_curve, nme_curve = {"top1": []}, {"top1": []}
     cnn_matrix, nme_matrix = [], []
+    fscil_base_curve, fscil_novel_curve, fscil_harmonic_curve = [], [], []
+    log_fscil_metrics = _is_fscil_run(args)
 
     start_task = 0
     if args.get("resume"):
@@ -151,6 +173,9 @@ def _train(args):
                 _restore_trainer_state(
                     trainer_state, cnn_curve, nme_curve, cnn_matrix, nme_matrix
                 )
+                fscil_base_curve = list(trainer_state.get("fscil_base_curve", []))
+                fscil_novel_curve = list(trainer_state.get("fscil_novel_curve", []))
+                fscil_harmonic_curve = list(trainer_state.get("fscil_harmonic_curve", []))
             logging.info(
                 "Resuming from task %d / %d (checkpoint: %s)",
                 start_task,
@@ -209,6 +234,16 @@ def _train(args):
 
             logging.info("Average Accuracy (CNN): {}".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))
             logging.info("Average Accuracy (NME): {}".format(sum(nme_curve["top1"])/len(nme_curve["top1"])))
+            if log_fscil_metrics:
+                _append_fscil_metrics(
+                    cnn_accy["grouped"],
+                    fscil_base_curve,
+                    fscil_novel_curve,
+                    fscil_harmonic_curve,
+                )
+                _log_fscil_metric_curves(
+                    fscil_base_curve, fscil_novel_curve, fscil_harmonic_curve
+                )
         else:
             logging.info("No NME accuracy.")
             logging.info("CNN: {}".format(cnn_accy["grouped"]))
@@ -226,11 +261,25 @@ def _train(args):
 
             print('Average Accuracy (CNN):', sum(cnn_curve["top1"])/len(cnn_curve["top1"]))
             logging.info("Average Accuracy (CNN): {} \n".format(sum(cnn_curve["top1"])/len(cnn_curve["top1"])))
+            if log_fscil_metrics:
+                _append_fscil_metrics(
+                    cnn_accy["grouped"],
+                    fscil_base_curve,
+                    fscil_novel_curve,
+                    fscil_harmonic_curve,
+                )
+                _log_fscil_metric_curves(
+                    fscil_base_curve, fscil_novel_curve, fscil_harmonic_curve
+                )
 
         if save_checkpoint and not (_is_fscil_run(args) and task > 0):
             trainer_state = _snapshot_trainer_state(
                 cnn_curve, nme_curve, cnn_matrix, nme_matrix
             )
+            if log_fscil_metrics:
+                trainer_state["fscil_base_curve"] = list(fscil_base_curve)
+                trainer_state["fscil_novel_curve"] = list(fscil_novel_curve)
+                trainer_state["fscil_harmonic_curve"] = list(fscil_harmonic_curve)
             model.save_task_checkpoint(checkpoint_dir, trainer_state)
 
     if _is_fscil_run(args):
