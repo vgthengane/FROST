@@ -180,6 +180,13 @@ class KeyCache:
                     torch.full((protos.shape[0],), cls, dtype=torch.long, device=self.device),
                 )
                 inserted += int(protos.shape[0])
+            elif self.insert_strategy == "mean_far2" and cls_emb.shape[0] > 0:
+                protos = self._mean_far2_prototypes(cls_emb, n_new)
+                self._append_keys(
+                    protos,
+                    torch.full((protos.shape[0],), cls, dtype=torch.long, device=self.device),
+                )
+                inserted += int(protos.shape[0])
             elif self.insert_strategy == "mean_nearmean" and cls_emb.shape[0] > 0:
                 protos = self._mean_nearmean_prototypes(cls_emb, n_new)
                 self._append_keys(
@@ -259,6 +266,22 @@ class KeyCache:
         far_idx = remaining[far_local]
         protos.append(emb[far_idx].unsqueeze(0))
         return torch.cat(protos, dim=0)
+
+    def _mean_far2_prototypes(
+        self, embeddings: torch.Tensor, n_new: int
+    ) -> torch.Tensor:
+        """Class mean plus up to two shots farthest from the mean."""
+        emb = embeddings.to(self.device)
+        n_slots = max(1, min(int(n_new), 3))
+        mean_proto = emb.mean(dim=0, keepdim=True)
+        if n_slots == 1 or emb.shape[0] == 1:
+            return mean_proto
+        sim = F.cosine_similarity(
+            self._normalize(emb), self._normalize(mean_proto), dim=1
+        )
+        n_far = min(n_slots - 1, 2, emb.shape[0])
+        far_idx = torch.topk(sim, k=n_far, largest=False).indices
+        return torch.cat([mean_proto, emb[far_idx]], dim=0)
 
     def _mean_nearmean_prototypes(
         self, embeddings: torch.Tensor, n_new: int

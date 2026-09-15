@@ -1,0 +1,190 @@
+#!/bin/bash
+#SBATCH --job-name=final_buf
+#SBATCH --account=EUHPC_D36_199
+#SBATCH --partition=boost_usr_prod
+#SBATCH --array=0-5
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus=1
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=64G
+#SBATCH --time=24:00:00
+#SBATCH --output=_experiments/slurm_logs/%A_%a_final_buf.out
+
+# Buffer twin of the ACCEPTED buffer-free main recipe (FINAL_METHOD_BUFFERFREE.md).
+#
+# Domain-aware insert (same as buffree Ours session curves):
+#   0–2 in-domain  → hybrid3_st (mean–close–far), static, max, buffer
+#   3–5 cross      → mean_st, static, max, buffer
+#
+# Everything else matches hybrid_pool / accepted buffree:
+#   base-only ep5, ridge_cache α=0.85 (from config), conflict replay train-CM only,
+#   evolution static, seed 2008.
+#
+# Submit (6 jobs):
+#   sbatch scripts/simpl_runs_final_method_buf.sh
+#
+# In-domain only (if cross mean_st buf already done in BASEONLY):
+#   sbatch --array=0-2 scripts/simpl_runs_final_method_buf.sh
+#
+# Logs: _experiments/00_FINAL_EP5_MAX_POOL/
+#   final_<proto>_hybrid3_st_buf_max.log   (in-domain)
+#   final_<proto>_mean_st_buf_max.log      (cross)
+
+set -euo pipefail
+cd "${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+RUNNER=(aprun python)
+LOGROOT="_experiments/00_FINAL_EP5_MAX_POOL"
+SEED=2008
+SKIP_DONE=0
+ONLY_IDX=""
+ONLY_PROTOCOL=""
+SMOKE=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --local) RUNNER=(aprun python); shift ;;
+    --skip-done) SKIP_DONE=1; shift ;;
+    --smoke) SMOKE=1; shift ;;
+    --array)
+      ONLY_IDX="${2:?}"
+      shift 2
+      ;;
+    --only-protocol)
+      ONLY_PROTOCOL="${2:?}"
+      shift 2
+      ;;
+    *)
+      echo "Unknown arg: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+mkdir -p "${LOGROOT}" _experiments/slurm_logs
+
+# idx|run_id|config|prefix|n_sess|label|regime
+JOBS=(
+  "0|mn40|configs/selfevo_fscil_mn40_5t_flex_compare.json|mn40|5|MN40|hybrid3_st"
+  "1|sn55|configs/selfevo_fscil_sn55_7t_flex_compare.json|sn55|7|SN55|hybrid3_st"
+  "2|co3d|configs/selfevo_fscil_co3d_6t.json|co3d|6|CO3D|hybrid3_st"
+  "3|mn_scanobj|configs/selfevo_fscil_mn40_scanobjectnn_4t.json|mn_scanobj|4|MN→ScanObj|mean_st"
+  "4|sn_scanobj|configs/selfevo_fscil_sn55_scanobjectnn_4t.json|sn_scanobj|4|SN→ScanObj|mean_st"
+  "5|sn_co3d|configs/selfevo_fscil_sn55_co3d_11t.json|sn_co3d|11|SN→CO3D|mean_st"
+)
+
+SHARED=(
+  "fscil_adapter_base_only=true"
+  "task0_adapter_warmup=true"
+  "increment_adapter_warmup=false"
+  "fscil_classifier_warmup_after_protos=false"
+  "fscil_task1_adapter_warmup=false"
+  "tuned_epoch=5"
+  "conflict_replay=true"
+  "conflict_replay_on_test=false"
+  "conflict_replay_use_test_cm=false"
+  "model_name=selfevo"
+  "fscil_preset=canonical"
+  "prototype_pooling=max"
+  "pooling_temperature=0.07"
+  "fscil_shot_prototypes=false"
+  "fscil_cluster_new_classes=false"
+  "fscil_mean_best2_prototypes=false"
+  "insert_strategy=mean"
+  "evolution_policy=static"
+)
+
+regime_flags() {
+  case "$1" in
+    hybrid3_st)
+      printf '%s\n' \
+        "fscil_mean_close_far_prototypes=true" \
+        "fscil_mean_nearmean_prototypes=false" \
+        "max_prototypes_per_class=3" \
+        "fscil_increment_max_prototypes=3"
+      ;;
+    mean_st)
+      printf '%s\n' \
+        "fscil_mean_close_far_prototypes=false" \
+        "fscil_mean_nearmean_prototypes=false" \
+        "max_prototypes_per_class=1" \
+        "fscil_increment_max_prototypes=1"
+      ;;
+    *)
+      echo "Unknown regime: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+log() { echo "[$(date -Is)] $*"; }
+
+log_ok() {
+  local f="$1" n="$2"
+  [[ -f "$f" ]] || return 1
+  local last
+  last=$(grep "CNN top1 curve:" "$f" 2>/dev/null | tail -n1 || true)
+  [[ -n "$last" ]] || return 1
+  local c
+  c=$(echo "$last" | tr -cd ',' | wc -c)
+  c=$((c + 1))
+  [[ "$c" -ge "$n" ]]
+}
+
+run_idx() {
+  local idx="$1"
+  [[ "$idx" -ge 0 && "$idx" -lt "${#JOBS[@]}" ]] || { log "idx $idx out of range"; return 0; }
+
+  IFS='|' read -r _jid run_id config prefix n_sess label regime <<< "${JOBS[$idx]}"
+
+  if [[ -n "${ONLY_PROTOCOL}" && "${run_id}" != "${ONLY_PROTOCOL}" ]]; then
+    return 0
+  fi
+
+  local method="final_${prefix}_${regime}_buf_max"
+  local logfile="${LOGROOT}/${method}.log"
+
+  if [[ "${SKIP_DONE}" -eq 1 ]] && log_ok "${logfile}" "${n_sess}"; then
+    log "SKIP ${method}"
+    return 0
+  fi
+
+  local -a extra=()
+  for f in "${SHARED[@]}"; do
+    extra+=(--set "$f")
+  done
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && extra+=(--set "$f")
+  done < <(regime_flags "${regime}")
+
+  if [[ "${SMOKE}" -eq 1 ]]; then
+    extra+=(--max-task 1 --set tuned_epoch=1 --set task0_save_warmup_ckpts=false)
+    method="smoke_${method}"
+    logfile="${LOGROOT}/${method}.log"
+  fi
+
+  log "=== [${idx}] ${method} | ${label} | ${regime} | buf | max ==="
+  "${RUNNER[@]}" train_fscil.py \
+    --config "${config}" \
+    --logdir "${LOGROOT}" \
+    --method-name "${method}" \
+    --log-layout flat \
+    --seeds "${SEED}" \
+    "${extra[@]}" \
+    2>&1 | tee "${logfile}"
+  log "=== ${method} done ==="
+}
+
+if [[ -n "${ONLY_IDX}" ]]; then
+  run_idx "${ONLY_IDX}"
+elif [[ -n "${SLURM_ARRAY_TASK_ID:-}" ]]; then
+  run_idx "${SLURM_ARRAY_TASK_ID}"
+else
+  for i in $(seq 0 5); do
+    run_idx "$i"
+  done
+fi
+
+log "final-method BUFFER campaign finished → ${LOGROOT}"

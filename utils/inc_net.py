@@ -40,6 +40,8 @@ def get_backbone(args, pretrained=False):
             "ranpac",
             "selfevo",
             "selfevo_bufferfree",
+            "fscil_finetune",
+            "fscil_linprobe",
         ):
             from backbone import uni3d_adapter
             from easydict import EasyDict

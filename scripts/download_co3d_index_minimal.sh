@@ -74,7 +74,6 @@ PY
   # delete zips for this category
   rm -f "$OUT/${CAT}"_*.zip
 }
-
 download_category() {
   local CAT="$1"
   log "Download start: $CAT"

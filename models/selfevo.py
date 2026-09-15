@@ -1116,6 +1116,8 @@ class Learner(BaseLearner):
             strategy = "per_sample"
         elif bool(self.args.get("fscil_mean_close_far_prototypes", False)):
             strategy = "mean_close_far"
+        elif bool(self.args.get("fscil_mean_far2_prototypes", False)):
+            strategy = "mean_far2"
         elif bool(self.args.get("fscil_mean_nearmean_prototypes", False)):
             strategy = "mean_nearmean"
         elif bool(self.args.get("fscil_mean_best2_prototypes", False)):

@@ -26,6 +26,9 @@ _3D_METHODS = {
     "aper_adapter",
     "selfevo",
     "selfevo_bufferfree",
+    "fscil_joint",
+    "fscil_finetune",
+    "fscil_linprobe",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -207,3 +207,65 @@ def prepare_fscil_task_datasets(
         int(incr_cap) * (total_classes - known_classes),
     )
     return train_dataset, proto_dataset
+
+
+def prepare_joint_fscil_train_dataset(
+    data_manager,
+    total_classes: int,
+    cur_task: int,
+    args: dict,
+):
+    """FLEG-style Joint under the FSCIL budget.
+
+    Session 0: full base-class training data.
+    Session t>0: full base data + the same cached ``increment_train_per_class``
+    shots for every novel class seen so far (no old-class 1-shot replay buffer).
+    """
+    base_n = int(args["init_cls"])
+    seed_val = args.get("seed", 1993)
+    if isinstance(seed_val, list):
+        seed_val = seed_val[0]
+    seed_val = int(seed_val)
+    incr_cap = int(args.get("increment_train_per_class", 5))
+
+    if cur_task == 0 or total_classes <= base_n:
+        train_dataset = data_manager.get_dataset(
+            np.arange(0, total_classes),
+            source="train",
+            mode="train",
+        )
+        logging.info(
+            "Joint base session: task=%d classes=0-%d train_n=%d (full data)",
+            cur_task,
+            total_classes - 1,
+            len(train_dataset),
+        )
+        return train_dataset
+
+    base_dataset = data_manager.get_dataset(
+        np.arange(0, base_n),
+        source="train",
+        mode="train",
+    )
+    novel_dataset = data_manager.get_dataset(
+        np.arange(base_n, total_classes),
+        source="train",
+        mode="train",
+    )
+    novel_dataset = subsample_dataset_by_class(
+        novel_dataset, incr_cap, seed_val, cache_role="incr"
+    )
+    train_dataset = concat_datasets([base_dataset, novel_dataset])
+    logging.info(
+        "Joint session: task=%d base=0-%d(full n=%d) novel=%d-%d(%d-shot n=%d) "
+        "total_n=%d",
+        cur_task,
+        base_n - 1,
+        len(base_dataset),
+        base_n,
+        total_classes - 1,
+        incr_cap,
+        len(novel_dataset),
+        len(train_dataset),
+    )
+    return train_dataset

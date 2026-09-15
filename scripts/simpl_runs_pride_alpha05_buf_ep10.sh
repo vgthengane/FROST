@@ -35,11 +35,11 @@
 #   5  sn_co3d    configs/selfevo_fscil_sn55_co3d_11t.json
 #
 # Shared recipe:
-#   buffer (canonical) | hybrid3_st (close–far) | max pool | static | base-only
+#   buffer (canonical) | mean_close_st (mean + two close) | max pool | static | base-only
 #   tuned_epoch=10 | conflict train-CM only | seed=2008 | Uni3D-B frozen
 #
 # Logs:
-#   _experiments/00_ABLATION_ALPHA05_BUF_EP10/final10_<proto>_hybrid3_st_buf_a05.log
+#   _experiments/00_ABLATION_ALPHA05_BUF_EP10/final10_<proto>_mean_close_st_buf_a05.log
 #
 # On Leonardo (after code sync):
 #   bash sync_eurohpc.sh --code
@@ -110,9 +110,10 @@ BASE_FLAGS=(
   "pooling_temperature=0.07"
   "fscil_shot_prototypes=false"
   "fscil_cluster_new_classes=false"
-  "fscil_mean_best2_prototypes=false"
-  "fscil_mean_close_far_prototypes=true"
+  "fscil_mean_best2_prototypes=true"
+  "fscil_mean_close_far_prototypes=false"
   "fscil_mean_nearmean_prototypes=false"
+  "fscil_mean_far2_prototypes=false"
   "insert_strategy=mean"
   "max_prototypes_per_class=3"
   "fscil_increment_max_prototypes=3"
@@ -147,7 +148,7 @@ run_idx() {
     return 0
   fi
 
-  local method="final10_${prefix}_hybrid3_st_buf_a05"
+  local method="final10_${prefix}_mean_close_st_buf_a05"
   local logfile="${LOGROOT}/${method}.log"
 
   if [[ "${SKIP_DONE}" -eq 1 ]] && log_is_complete "${logfile}" "${n_sess}"; then
@@ -170,7 +171,7 @@ run_idx() {
     logfile="${LOGROOT}/${method}.log"
   fi
 
-  log "=== [${idx}] ${method} | ${label} | hybrid3_st | buf | max | ep10 | α=0.5 ==="
+  log "=== [${idx}] ${method} | ${label} | mean_close_st | buf | max | ep10 | α=0.5 ==="
   "${RUNNER[@]}" train_fscil.py \
     --config "${config}" \
     --logdir "${LOGROOT}" \
