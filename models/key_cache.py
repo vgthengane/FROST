@@ -68,6 +68,10 @@ class KeyCache:
         gated_growth_include_novel: bool = False,
         novel_gated_growth_threshold: float = 0.85,
         novel_gated_growth_max_classes: int = 5,
+        # Diagonal-Gaussian cache scoring (optional; see classify + insert stats).
+        gauss_var_floor: float = 1e-4,
+        gauss_var_shrink: float = 0.5,
+        gauss_use_logdet: bool = False,
     ):
         self.feature_dim = feature_dim
         self.device = torch.device(device)
@@ -89,10 +93,18 @@ class KeyCache:
         self.gated_growth_include_novel = gated_growth_include_novel
         self.novel_gated_growth_threshold = novel_gated_growth_threshold
         self.novel_gated_growth_max_classes = novel_gated_growth_max_classes
+        self.gauss_var_floor = float(gauss_var_floor)
+        self.gauss_var_shrink = float(gauss_var_shrink)
+        self.gauss_use_logdet = bool(gauss_use_logdet)
 
         self.keys: torch.Tensor = torch.empty(0, feature_dim, device=self.device)
         self.labels: torch.Tensor = torch.empty(0, dtype=torch.long, device=self.device)
         self.margins: torch.Tensor = torch.empty(0, device=self.device)
+        # Per-class diagonal Gaussian stats from *all* shot embeddings at insert
+        # (not only stored prototypes). Used when prototype_pooling == "diag_gauss".
+        self._gauss_count: Dict[int, int] = {}
+        self._gauss_mean: Dict[int, torch.Tensor] = {}
+        self._gauss_var: Dict[int, torch.Tensor] = {}
         self.bandit = BanditState()
         self.history: List[EvolutionStats] = []
 
@@ -104,7 +116,16 @@ class KeyCache:
         return F.normalize(x, dim=-1)
 
     def classify(self, features: torch.Tensor, num_classes: int) -> torch.Tensor:
-        """Return cosine logits [B, num_classes] via max key similarity per class."""
+        """Return per-class cache logits [B, num_classes].
+
+        Default: cosine similarity pooled over stored keys (max / mean / logsumexp).
+        ``diag_gauss``: shrunk diagonal Gaussian log-score from shot stats recorded
+        at insert (μ, σ² per dim). Designed for few-shot novel classes where raw
+        max-over-keys is noisy.
+        """
+        if self.prototype_pooling == "diag_gauss":
+            return self._classify_diag_gauss(features, num_classes)
+
         if self.size == 0:
             return torch.zeros(features.shape[0], num_classes, device=features.device)
 
@@ -132,6 +153,89 @@ class KeyCache:
                 logits[:, cls] = cls_sim.max(dim=1).values
         return logits
 
+    def _gauss_prior_var(self) -> torch.Tensor:
+        """Mean diagonal variance across classes (shrinkage target)."""
+        floor = self.gauss_var_floor
+        if not self._gauss_var:
+            return torch.full(
+                (self.feature_dim,), floor, device=self.device, dtype=torch.float32
+            )
+        stacked = torch.stack(list(self._gauss_var.values()), dim=0)
+        return stacked.mean(dim=0).clamp_min(floor)
+
+    def _classify_diag_gauss(
+        self, features: torch.Tensor, num_classes: int
+    ) -> torch.Tensor:
+        """Shrunk diag-Gaussian scores; falls back to cosine-max if no stats."""
+        logits = torch.full(
+            (features.shape[0], num_classes),
+            -1e4,
+            device=features.device,
+            dtype=features.dtype,
+        )
+        if not self._gauss_mean:
+            # No distribution stats yet — degrade to cosine max over keys.
+            if self.size == 0:
+                return torch.zeros(
+                    features.shape[0], num_classes, device=features.device
+                )
+            feat = self._normalize(features)
+            keys = self._normalize(self.keys)
+            sim = feat @ keys.T
+            for cls in range(num_classes):
+                mask = self.labels == cls
+                if mask.any():
+                    logits[:, cls] = sim[:, mask].max(dim=1).values
+            return logits
+
+        feat = features.to(self.device)
+        prior = self._gauss_prior_var().to(device=feat.device, dtype=feat.dtype)
+        shrink = min(max(self.gauss_var_shrink, 0.0), 1.0)
+        floor = self.gauss_var_floor
+        tau = max(self.pooling_temperature, 1e-4)
+
+        for cls in range(num_classes):
+            if cls not in self._gauss_mean:
+                continue
+            mu = self._gauss_mean[cls].to(device=feat.device, dtype=feat.dtype)
+            var = self._gauss_var[cls].to(device=feat.device, dtype=feat.dtype)
+            var = (1.0 - shrink) * var + shrink * prior
+            var = var.clamp_min(floor)
+            # Mean over dims keeps logit scale closer to cosine fusion.
+            maha = ((feat - mu) ** 2 / var).mean(dim=-1)
+            score = -maha / tau
+            if self.gauss_use_logdet:
+                score = score - 0.5 * torch.log(var).mean()
+            logits[:, cls] = score
+        return logits
+
+    def _update_class_gauss_stats(self, cls: int, cls_emb: torch.Tensor) -> None:
+        """Fit diagonal Gaussian from all available class embeddings (e.g. 5-shot)."""
+        emb = cls_emb.detach().to(self.device)
+        if emb.ndim != 2 or emb.shape[0] == 0:
+            return
+        n = int(emb.shape[0])
+        mean = emb.mean(dim=0)
+        if n >= 2:
+            var = emb.var(dim=0, unbiased=False)
+        else:
+            var = torch.full(
+                (self.feature_dim,),
+                self.gauss_var_floor,
+                device=self.device,
+                dtype=emb.dtype,
+            )
+        var = var.clamp_min(self.gauss_var_floor)
+        self._gauss_count[cls] = n
+        self._gauss_mean[cls] = mean
+        self._gauss_var[cls] = var
+
+    def _clear_class_gauss_stats(self, class_ids: set[int]) -> None:
+        for cls in class_ids:
+            self._gauss_count.pop(cls, None)
+            self._gauss_mean.pop(cls, None)
+            self._gauss_var.pop(cls, None)
+
     def insert_prototypes(
         self,
         embeddings: torch.Tensor,
@@ -152,6 +256,8 @@ class KeyCache:
             if not mask.any():
                 continue
             cls_emb = embeddings[mask]
+            # Always refresh class distribution from the full shot set (5-shot etc.).
+            self._update_class_gauss_stats(cls, cls_emb)
             n_new = self.max_prototypes_per_class - n_existing
             if self.insert_strategy == "per_sample" and cls_emb.shape[0] > 0:
                 protos = cls_emb[:n_new]
@@ -211,6 +317,7 @@ class KeyCache:
             return self.insert_prototypes(embeddings, labels, class_ids)
 
         class_ids = {int(c) for c in class_ids}
+        self._clear_class_gauss_stats(class_ids)
         keep = torch.tensor(
             [int(lbl.item()) not in class_ids for lbl in self.labels],
             dtype=torch.bool,
@@ -900,6 +1007,9 @@ class KeyCache:
             "bandit_counts": dict(self.bandit.counts),
             "bandit_rewards": dict(self.bandit.rewards),
             "history": [s.__dict__ for s in self.history],
+            "gauss_count": dict(self._gauss_count),
+            "gauss_mean": {k: v.cpu() for k, v in self._gauss_mean.items()},
+            "gauss_var": {k: v.cpu() for k, v in self._gauss_var.items()},
         }
         if self.rl_agent is not None:
             out["rl_agent"] = self.rl_agent.state_dict()
@@ -915,5 +1025,14 @@ class KeyCache:
             self.bandit.rewards.update(state["bandit_rewards"])
         if "history" in state:
             self.history = [EvolutionStats(**h) for h in state["history"]]
+        self._gauss_count = {
+            int(k): int(v) for k, v in state.get("gauss_count", {}).items()
+        }
+        self._gauss_mean = {
+            int(k): v.to(self.device) for k, v in state.get("gauss_mean", {}).items()
+        }
+        self._gauss_var = {
+            int(k): v.to(self.device) for k, v in state.get("gauss_var", {}).items()
+        }
         if self.rl_agent is not None and "rl_agent" in state:
             self.rl_agent.load_state_dict(state["rl_agent"])

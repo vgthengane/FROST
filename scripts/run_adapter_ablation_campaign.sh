@@ -9,7 +9,7 @@
 #   bash scripts/run_adapter_ablation_campaign.sh summarize-all
 #
 # Smoke (debug QoS, one session each):
-#   sbatch --qos=boost_qos_dbg --time=01:00:00 --array=0 \
+#   sbatch --qos=boost_qos_dbg --time=00:30:00 --array=0 \
 #     scripts/simpl_runs_adapter_ablation_indomain.sh --smoke
 #
 # Campaign matrix (both datasets: MN40 + SN55):

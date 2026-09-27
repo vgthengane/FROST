@@ -27,7 +27,7 @@
 # Submit:
 #   sbatch scripts/simpl_runs_pride_component_ablation_mn40.sh
 # Smoke one row:
-#   sbatch --qos=boost_qos_dbg --time=01:00:00 --array=1 \
+#   sbatch --qos=boost_qos_dbg --time=00:30:00 --array=1 \
 #     scripts/simpl_runs_pride_component_ablation_mn40.sh --smoke
 # Summarize:
 #   aprun python scripts/summarize_pride_component_ablation_mn40.py

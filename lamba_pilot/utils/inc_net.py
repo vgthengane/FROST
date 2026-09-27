@@ -11,11 +11,13 @@ def get_backbone(args, pretrained=False):
     name = args["backbone_type"].lower()
     # SimpleCIL or SimpleCIL w/ Finetune
     if name == "pretrained_vit_b16_224" or name == "vit_base_patch16_224":
-        model = timm.create_model("vit_base_patch16_224",pretrained=True, num_classes=0)
+        from backbone.vit_pretrained import create_timm_vit
+        model = create_timm_vit("vit_base_patch16_224", num_classes=0)
         model.out_dim = 768
         return model.eval()
     elif name == "pretrained_vit_b16_224_in21k" or name == "vit_base_patch16_224_in21k":
-        model = timm.create_model("vit_base_patch16_224_in21k",pretrained=True, num_classes=0)
+        from backbone.vit_pretrained import create_timm_vit
+        model = create_timm_vit("vit_base_patch16_224_in21k", num_classes=0)
         model.out_dim = 768
         return model.eval()
 
@@ -65,7 +67,16 @@ def get_backbone(args, pretrained=False):
 
     elif '_adapter' in name:
         ffn_num = args["ffn_num"]
-        if args["model_name"] == "aper_adapter" or args["model_name"] == "ranpac" or args["model_name"] == "fecam":
+        if args["model_name"] in (
+            "aper_adapter",
+            "ranpac",
+            "fecam",
+            "selfevo",
+            "selfevo_bufferfree",
+            "fscil_joint",
+            "fscil_finetune",
+            "fscil_linprobe",
+        ):
             from backbone import vit_adapter
             from easydict import EasyDict
             tuning_config = EasyDict(

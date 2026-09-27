@@ -1,68 +1,88 @@
 # PRidE — locked final FSCIL results (do not re-negotiate in chat)
 
 **Paper / table name:** **PRidE**  
-**Code:** `selfevo` / `ridge_cache` / `mean_close_st` (`fscil_mean_best2_prototypes`)  
-**Seed:** 2008  
-**Updated:** 2026-07-23  
+**Code:** `selfevo` / `ridge_cache`  
+**Seed set:** `1947, 1991, 2001, 2008, 2019`  
+**Updated:** 2026-09-25  
 
 > If chat memory conflicts with this file, **this file wins**.
 
-| Variant | Status | Logs |
-|---------|--------|------|
-| **PRidE EP10 α=0.5 buffer-free** | **PENDING re-run** (mean + two close) | `00_ABLATION_ALPHA05_EP10/final10_*_mean_close_st_buffree_a05.log` |
-| **PRidE EP10 α=0.5 buffer** | **PENDING re-run** (twin) | `00_ABLATION_ALPHA05_BUF_EP10/final10_*_mean_close_st_buf_a05.log` |
+## PAPER METRICS (LOCKED)
 
-Recipe (both): **mean + two close** on **all 6**, max, ridge_cache **α=0.5** (flat; no ramp), static, base-only, **`tuned_epoch=10`**, conflict train-CM only, seed 2008.  
-Only knob that changes: **buffer vs buffer-free**.
+| Symbol | Meaning | Source in logs |
+|--------|---------|----------------|
+| \(\mathcal{A}_b\) | Base / session-0 total accuracy | first value of `CNN top1 curve` |
+| \(\mathcal{A}_T\) | Final-session total accuracy | last value of `CNN top1 curve` |
+| \(\bar{\mathcal{A}}\) / **AA** | **Average incremental accuracy** = mean of per-session total acc from base through last | `Average Accuracy (CNN)` = mean(`CNN top1 curve`) |
+| \(\Delta\) | Relative drop \(100(\mathcal{A}_b-\mathcal{A}_T)/\mathcal{A}_b\) | from displayed Ab, AT |
 
-Launchers:
-```bash
-sbatch scripts/simpl_runs_pride_alpha05_ep10.sh       # buffer-free (main)
-sbatch scripts/simpl_runs_pride_alpha05_buf_ep10.sh   # buffer twin
-```
+**Never** set \(\bar{\mathcal{A}} = (\mathcal{A}_b+\mathcal{A}_T)/2\). That is wrong for this paper.
 
-Also mirrored: `FINAL_METHOD_BUFFERFREE.md`, `FINAL_METHOD_BUFFER.md`.
+---
+
+## PAPER RECIPE (LOCKED)
+
+**Both point-cloud and image main tables use `ridge_rp_dim=2000` + mean-only.**
+
+| Domain | Insert | RP | Fusion / other | Logs / tables |
+|--------|--------|-----|----------------|---------------|
+| **Point cloud (3D)** | **mean only** (`mean_st`, 1 key/class) | **2000** | α=0.5 flat, max, static, base-only ep10 | `00_FINAL_SUB_MEAN_A05_RP2000_*` → `full_single.tex`, `full_xdata.tex` |
+| **Image (2D)** | **mean only** (`mean1`) | **2000** | α=0.5 flat, static, base-only | `00_PRIDE_IMAGE_MEANONLY_A05_RP2000_5SEEDS` → `image_fscil.tex` |
+
+| PC variant | Logs |
+|------------|------|
+| **buffer-free (EF)** | `00_FINAL_SUB_MEAN_A05_RP2000_EP10*` |
+| **buffer (EB)** | `00_FINAL_SUB_MEAN_A05_RP2000_BUF_EP10*` |
+
+`aprun python scripts/summarize_pride_multiseed.py --variant final_sub_both`
+
+**rp=1000** = ablation twin only (weaker CO3D).
+
+### Do not mix image folders
+| Folder | Insert | Use for paper? |
+|--------|--------|----------------|
+| `00_PRIDE_IMAGE_MEANONLY_A05_RP2000_5SEEDS` | **mean only** | **Yes** (matches `image_fscil.tex`) |
+| `00_PRIDE_IMAGE_LOCKED_A05_RP2000_5SEEDS` | mean_best2 | No — insert ablation only |
 
 ### DO NOT confuse with
 | Wrong | Why |
 |-------|-----|
-| close–far / `hybrid3_st` α=0.5 EP10 | Previous lock (2026-07-19); keep logs for insert ablation only |
-| α=0.85 EP5 / EP10 (`00_FINAL_EP*` / `…_hybrid3_buffree_max*`) | Older candidate; **not** current main |
-| mean on cross / domain-aware insert | Ablation only |
-| `hybrid4_evo`, `mean_st`, `pshot_*`, α sweep other than 0.5 | Ablations |
+| \(\bar{\mathcal{A}}=(\mathcal{A}_b+\mathcal{A}_T)/2\) | Not our AA; use mean of all session accs |
+| mean+2close / `mean_close_st` | Insert ablation only |
+| mean_best2 (image) as mean-only | Different insert |
+| close–far / `hybrid3_st` | Older lock |
+| **rp=1000 as main** | Ablation only |
+| α=0.85 EP5/EP10 | Older candidate |
 
 ---
 
-## EP10 α=0.5 buffer-free (main table)
+## In-domain main table (PC mean_st, rp=2000, 5-seed)
 
-**Status:** awaiting `mean_close_st` campaign completion.  
-**Do not paste close–far curves below as the main PRidE row.**
+Metrics: \(\mathcal{A}_b\), \(\mathcal{A}_T\), \(\bar{\mathcal{A}}\)=**avg incremental acc**, \(\Delta\) relative (see above).
 
-Previous close–far reference (ablation archive only):  
-**In-domain:** `95.3,93.7,93.6,93.0,91.5,3.9,92.0,91.0,90.0,89.7,89.3,88.6,89.0,3.0,80.4,75.1,72.5,71.5,70.5,70.2,10.2`  
-**Cross:** `92.2,91.2,90.5,88.8,88.0,87.1,86.4,85.1,84.4,83.3,82.1,10.1,92.7,91.2,88.6,87.4,5.3,93.6,92.5,91.5,91.0,2.6`
+| Variant | ModelNet | ShapeNet | CO3D |
+|---------|----------|----------|------|
+| **Ours (EF)** | 95.8, 91.3, 93.4, 4.7 | 92.2, 89.2, 90.1, 3.3 | 81.6, **72.0**, 75.3, **11.8** |
+| **Ours (EB)** | 95.8, **91.5**, 93.5, **4.5** | 92.2, **89.3**, 90.2, **3.1** | 81.6, 71.9, 75.3, 11.9 |
 
-| Protocol | Curve | Δ | Last/Novel/Harm |
-|----------|-------|--:|----------------:|
-| MN40 | *TBD* | | |
-| SN55 | *TBD* | | |
-| CO3D | *TBD* | | |
-| SN→CO3D | *TBD* | | |
-| MN→Scan | *TBD* | | |
-| SN→Scan | *TBD* | | |
+## Cross-domain main table (PC mean_st, rp=2000, 5-seed)
 
----
+Column order matches `full_xdata.tex`: SN→CO3D | MN→Scan | SN→Scan.
 
-## EP10 α=0.5 buffer
+| Variant | SN→CO3D | MN→Scan | SN→Scan |
+|---------|---------|---------|---------|
+| **Ours (EF)** | 92.3, 82.5, 87.6, 10.6 | 92.8, **87.9**, 90.2, **5.3** | 93.4, 90.7, 91.9, 2.9 |
+| **Ours (EB)** | 92.3, **82.9**, 87.8, **10.2** | 92.8, 87.9, 90.2, 5.3 | 93.4, **90.8**, 92.0, **2.8** |
 
-**Status:** awaiting twin re-run with `mean_close_st`.
+vs FLEG Last (in-domain): MN40 87.3→**91.5**, SN55 83.0→**89.3**, CO3D 57.3→**72.0**.
 
 ---
 
 ## Quick readout
 
-- Main paper row: **EP10 α=0.5 buffer-free**, insert = **mean + two nearest shots**.
-- Insert rationale: local support around the class mean (cleaner than close–far; MN40≈flat, CO3D slightly prefers two-close over close–far in hparam ablation).
-- After logs land: fill curves above and refresh `FINAL_METHOD_*.md`.
+- Paper PC: **mean-only + rp=2000 + α=0.5 EP10**, EF + EB.
+- Paper image: **mean-only + rp=2000** (`00_PRIDE_IMAGE_MEANONLY_A05_RP2000_5SEEDS`).
+- \(\bar{\mathcal{A}}\) = average incremental accuracy (all sessions), never mid-point of Ab and AT.
+- Why rp=2000: clearly better than rp=1000 on CO3D (~+2.4 Last); flat/slightly up elsewhere.
 
 *End of `_notes/pride_final.md`*

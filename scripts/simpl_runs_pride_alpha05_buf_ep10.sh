@@ -44,6 +44,8 @@
 # On Leonardo (after code sync):
 #   bash sync_eurohpc.sh --code
 #   sbatch scripts/simpl_runs_pride_alpha05_buf_ep10.sh
+# Multi-seed (5 seeds × 6 protocols):
+#   sbatch scripts/simpl_runs_pride_alpha05_buf_ep10_multiseed.sh
 # One protocol:
 #   bash scripts/simpl_runs_pride_alpha05_buf_ep10.sh --local --only-protocol mn_scanobj
 # Skip finished:

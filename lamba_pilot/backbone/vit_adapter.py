@@ -359,8 +359,9 @@ def vit_base_patch16_224_adapter(pretrained=False, **kwargs):
     model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
 
-    # checkpoint_model = torch.load('./pretrained_models/B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0.npz')
-    checkpoint_model=timm.create_model("vit_base_patch16_224", pretrained=True, num_classes=0)
+    # Prefer offline weights (Leonardo compute has no HF network).
+    from backbone.vit_pretrained import create_timm_vit
+    checkpoint_model = create_timm_vit("vit_base_patch16_224", num_classes=0)
     state_dict = checkpoint_model.state_dict()
     # modify the checkpoint state dict to match the model
     # first, split qkv weight into q, k, v
@@ -416,8 +417,9 @@ def vit_base_patch16_224_in21k_adapter(pretrained=False, **kwargs):
     model = VisionTransformer(patch_size=16, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True,
         norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
 
-    # checkpoint_model = torch.load('./pretrained_models/B_16-i21k-300ep-lr_0.001-aug_medium1-wd_0.1-do_0.0-sd_0.0.npz')
-    checkpoint_model=timm.create_model("vit_base_patch16_224_in21k", pretrained=True, num_classes=0)
+    # Prefer offline weights (Leonardo compute has no HF network).
+    from backbone.vit_pretrained import create_timm_vit
+    checkpoint_model = create_timm_vit("vit_base_patch16_224_in21k", num_classes=0)
     state_dict = checkpoint_model.state_dict()
     # modify the checkpoint state dict to match the model
     # first, split qkv weight into q, k, v

@@ -25,7 +25,7 @@
 #   aprun python scripts/summarize_fscil_ablations_mn40.py
 #
 # Smoke on Leonardo debug QoS (one ablation, 2 sessions):
-#   sbatch --qos=boost_qos_dbg --time=01:00:00 --array=0 \
+#   sbatch --qos=boost_qos_dbg --time=00:30:00 --array=0 \
 #     scripts/simpl_runs_ablations_mn40.sh --smoke
 #
 # Re-run / single ablation on Leonardo:

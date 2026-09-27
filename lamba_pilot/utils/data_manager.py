@@ -274,6 +274,18 @@ def _get_idata(dataset_name, args=None):
         from datasets.cross_co3d import iCrossCO3D
 
         return iCrossCO3D(args)
+    elif name == "cub200":
+        from datasets.lgsp_fscil import iCUB200FSCIL
+
+        return iCUB200FSCIL(args)
+    elif name in ("fgvcaircraft", "aircraft"):
+        from datasets.lgsp_fscil import iFGVCAircraftFSCIL
+
+        return iFGVCAircraftFSCIL(args)
+    elif name in ("inf200", "inf"):
+        from datasets.lgsp_fscil import iNF200FSCIL
+
+        return iNF200FSCIL(args)
 
     else:
         raise NotImplementedError("Unknown dataset {}.".format(dataset_name))

@@ -53,7 +53,13 @@ def _restore_trainer_state(state, cnn_curve, nme_curve, cnn_matrix, nme_matrix):
 
 def _is_fscil_run(args):
     """FSCIL runs keep task-0 warmup ckpts in the learner; skip tasks 1+ on disk."""
-    return bool(args.get("fscil_shot_protocol") or args.get("fscil3d_protocol"))
+    dataset = str(args.get("dataset", "")).lower()
+    return bool(
+        args.get("fscil_shot_protocol")
+        or args.get("fscil3d_protocol")
+        or args.get("lgsp_fscil")
+        or dataset in ("cub200", "fgvcaircraft", "aircraft", "inf200", "inf")
+    )
 
 
 def _log_fscil_metric_curves(base_curve, novel_curve, harmonic_curve):
@@ -313,7 +319,7 @@ def _set_device(args):
     gpus = []
 
     for device in device_type:
-        if device == -1:
+        if str(device) == "-1" or device == -1:
             device = torch.device("cpu")
         else:
             device = torch.device("cuda:{}".format(device))

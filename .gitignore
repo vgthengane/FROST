@@ -179,3 +179,7 @@ sync_*.sh
 WORKLOG.md
 _notes/*
 _paper/*
+# Vendor clones (use datasets/lgsp_index_list for session splits)
+third_party/LGSP/
+third_party/co3d/
+third_party/microshape/

@@ -8,7 +8,7 @@
 #   bash scripts/run_ablation_story.sh summarize-all    # A + B tables after jobs finish
 #
 # Smoke (debug QoS, one 1-shot full variant, ~10 min):
-#   sbatch --qos=boost_qos_dbg --time=01:00:00 --array=0 \
+#   sbatch --qos=boost_qos_dbg --time=00:30:00 --array=0 \
 #     scripts/simpl_runs_ablations_regimes.sh --smoke --regime mn40_1shot
 
 set -euo pipefail

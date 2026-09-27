@@ -12,7 +12,14 @@ POINTCLOUD_DATASETS = {
     "shapenet_co3d",
 }
 
-# Repo-root models/ holds 3D learners (not a lamba_pilot subpackage).
+# LGSP image FSCIL protocols (CUB / Aircraft / iNF200). Reuse repo-root SelfEvo.
+IMAGE_FSCIL_DATASETS = {
+    "cub200",
+    "fgvcaircraft",
+    "inf200",
+}
+
+# Repo-root models/ holds SelfEvo / FSCIL learners (not a lamba_pilot subpackage).
 _3D_METHODS = {
     "simplecil",
     "mos",
@@ -24,6 +31,15 @@ _3D_METHODS = {
     "ranpac",
     "slca",
     "aper_adapter",
+    "selfevo",
+    "selfevo_bufferfree",
+    "fscil_joint",
+    "fscil_finetune",
+    "fscil_linprobe",
+}
+
+# Methods that live under repo-root models/ even for image FSCIL.
+_REPO_ROOT_IMAGE_METHODS = {
     "selfevo",
     "selfevo_bufferfree",
     "fscil_joint",
@@ -48,6 +64,7 @@ def get_model(model_name, args):
     name = model_name.lower()
     dataset = args.get("dataset", "").lower()
     use_3d = dataset in POINTCLOUD_DATASETS
+    use_image_fscil = dataset in IMAGE_FSCIL_DATASETS
 
     if use_3d:
         if name not in _3D_METHODS:
@@ -55,6 +72,9 @@ def get_model(model_name, args):
                 f"Method '{name}' is not available for 3D dataset '{dataset}'. "
                 f"Supported: {sorted(_3D_METHODS)}"
             )
+        return _load_3d_learner(name)(args)
+
+    if use_image_fscil and name in _REPO_ROOT_IMAGE_METHODS:
         return _load_3d_learner(name)(args)
 
     if name == "simplecil":

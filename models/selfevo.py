@@ -81,8 +81,15 @@ class Learner(BaseLearner):
             )
         self.task0_adapter_warmup = self._modules.adapter.task0_warmup
         if self.task0_adapter_warmup:
-            if "_adapter" not in str(args.get("backbone_type", "")):
-                args["backbone_type"] = "uni3d_base_patch14_448_adapter"
+            bt = str(args.get("backbone_type", ""))
+            # Default Uni3D adapter only for point-cloud / Uni3D runs.
+            # Image FSCIL configs must set an explicit ViT adapter backbone.
+            if "_adapter" not in bt:
+                if (not bt) or ("uni3d" in bt):
+                    args["backbone_type"] = "uni3d_base_patch14_448_adapter"
+                elif "pretrained_vit" in bt or bt.startswith("vit_"):
+                    if not bt.endswith("_adapter"):
+                        args["backbone_type"] = f"{bt}_adapter"
             args.setdefault("ffn_num", 64)
             args.setdefault("tuned_epoch", 5)
             args.setdefault("init_lr", 0.01)
@@ -189,6 +196,9 @@ class Learner(BaseLearner):
             novel_gated_growth_max_classes=int(
                 args.get("fscil_novel_gated_growth_max_classes", 5)
             ),
+            gauss_var_floor=float(args.get("cache_gauss_var_floor", 1e-4)),
+            gauss_var_shrink=float(args.get("cache_gauss_var_shrink", 0.5)),
+            gauss_use_logdet=bool(args.get("cache_gauss_use_logdet", False)),
         )
 
     def _apply_low_shot_blend(self, args: dict) -> None:
@@ -212,6 +222,23 @@ class Learner(BaseLearner):
             self.ridge_cache_alpha,
         )
 
+    def _adapter_modules(self):
+        """Yield AdaptFormer modules (Uni3D: backbone.adaptmlp; ViT: per-block)."""
+        backbone = self._unwrap_network().backbone
+        if hasattr(backbone, "adaptmlp"):
+            yield backbone.adaptmlp
+            return
+        blocks = getattr(backbone, "blocks", None)
+        if blocks is None:
+            return
+        for block in blocks:
+            adapt = getattr(block, "adaptmlp", None)
+            if adapt is not None:
+                yield adapt
+
+    def _has_adapter(self) -> bool:
+        return any(True for _ in self._adapter_modules())
+
     def _freeze_backbone(self) -> None:
         for param in self._network.backbone.parameters():
             param.requires_grad = False
@@ -223,8 +250,13 @@ class Learner(BaseLearner):
         """Enable adapter (+ optional fc) params for task-0 warmup."""
         for param in self._network.backbone.parameters():
             param.requires_grad = False
-        for param in self._network.backbone.adaptmlp.parameters():
-            param.requires_grad = True
+        n_adapt = 0
+        for adapt in self._adapter_modules():
+            for param in adapt.parameters():
+                param.requires_grad = True
+                n_adapt += param.numel()
+        if n_adapt == 0:
+            logging.warning("No adapter parameters found on backbone=%s", type(self._network.backbone).__name__)
         if self._network.fc is not None:
             for param in self._network.fc.parameters():
                 param.requires_grad = train_fc
@@ -491,10 +523,22 @@ class Learner(BaseLearner):
                 best_epoch = epoch + 1
                 best_train_acc = float(train_acc)
                 best_state = copy.deepcopy(self._unwrap_network().state_dict())
+            avg_loss = losses / max(len(train_loader), 1)
             info = (
                 f"Task {self._cur_task} warmup Epoch {epoch + 1}/{tuned_epoch} => "
-                f"Loss {losses / max(len(train_loader), 1):.3f}, "
+                f"Loss {avg_loss:.3f}, "
                 f"Train_accy {train_acc:.2f}, Test_accy {test_acc:.2f}"
+            )
+            # Structured line for LR/epoch convergence plots (parseable).
+            logging.info(
+                "warmup_curve task=%d epoch=%d/%d loss=%.6f train_acc=%.4f test_acc=%.4f lr=%.6f",
+                self._cur_task,
+                epoch + 1,
+                tuned_epoch,
+                avg_loss,
+                float(train_acc),
+                float(test_acc),
+                init_lr,
             )
             prog_bar.set_description(info)
         logging.info(info)
@@ -1060,7 +1104,7 @@ class Learner(BaseLearner):
             and not bool(self.args.get("fscil_increment_warmup_pre_and_post", False))
         ):
             return
-        if not hasattr(self._network.backbone, "adaptmlp"):
+        if not self._has_adapter():
             logging.warning(
                 "Adapter warmup skipped task=%d: backbone has no adaptmlp",
                 self._cur_task,
@@ -1094,7 +1138,7 @@ class Learner(BaseLearner):
                 "Skipping classifier warmup on last FSCIL task=%d", self._cur_task
             )
             return
-        if not hasattr(self._network.backbone, "adaptmlp"):
+        if not self._has_adapter():
             logging.warning(
                 "Classifier warmup skipped task=%d: backbone has no adaptmlp",
                 self._cur_task,
@@ -1107,14 +1151,29 @@ class Learner(BaseLearner):
         self._freeze_backbone()
 
     def _fscil_prototype_settings(self) -> tuple[str, int]:
-        """Return (insert_strategy, max_prototypes_per_class) for this task."""
+        """Return (insert_strategy, max_prototypes_per_class) for this task.
+
+        Base task (task 0) keeps the cache default (e.g. mean_best2 over all base
+        samples). Incremental tasks may override to use every few-shot sample as a
+        prototype even when ``fscil_shot_protocol`` is false — LGSP session indexes
+        already encode the 5-shot novel splits.
+        """
         strategy = self.cache.insert_strategy
         max_proto = self.cache.max_prototypes_per_class
-        if not self.fscil_shot_protocol or self._cur_task <= 0:
+        if self._cur_task <= 0:
             return strategy, max_proto
+
+        # Incremental overrides (do not require full fscil_shot_protocol).
         if bool(self.args.get("fscil_shot_prototypes", False)):
             strategy = "per_sample"
-        elif bool(self.args.get("fscil_mean_close_far_prototypes", False)):
+            max_proto = int(
+                self.args.get(
+                    "fscil_increment_max_prototypes",
+                    self.args.get("increment_train_per_class", 5),
+                )
+            )
+            return strategy, max_proto
+        if bool(self.args.get("fscil_mean_close_far_prototypes", False)):
             strategy = "mean_close_far"
         elif bool(self.args.get("fscil_mean_far2_prototypes", False)):
             strategy = "mean_far2"
@@ -1122,10 +1181,17 @@ class Learner(BaseLearner):
             strategy = "mean_nearmean"
         elif bool(self.args.get("fscil_mean_best2_prototypes", False)):
             strategy = "mean_best2"
-        elif bool(self.args.get("fscil_cluster_new_classes", True)):
+        elif bool(self.args.get("fscil_cluster_new_classes", False)):
             strategy = "cluster"
-        incr_cap = int(self.args.get("increment_train_per_class", 5))
-        max_proto = int(self.args.get("fscil_increment_max_prototypes", incr_cap))
+        elif self.fscil_shot_protocol and bool(
+            self.args.get("fscil_cluster_new_classes", True)
+        ):
+            # Preserve legacy default under full FSCIL shot protocol.
+            strategy = "cluster"
+
+        if self.fscil_shot_protocol or "fscil_increment_max_prototypes" in self.args:
+            incr_cap = int(self.args.get("increment_train_per_class", 5))
+            max_proto = int(self.args.get("fscil_increment_max_prototypes", incr_cap))
         return strategy, max_proto
 
     def _insert_task_prototypes(
