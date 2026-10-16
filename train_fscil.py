@@ -76,21 +76,34 @@ TOY_DEFAULTS = {
 
 
 def _preload_root_inc_net() -> None:
-    """Register repo-root utils/inc_net.py before lamba_pilot/utils shadows it."""
+    """Overlay repo-root Uni3D ``utils.inc_net`` onto the LAMDA ``utils`` package."""
     spec = importlib.util.spec_from_file_location("utils.inc_net", ROOT_INC_NET)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     sys.modules["utils.inc_net"] = module
+    import utils as _utils
+
+    _utils.inc_net = module  # type: ignore[attr-defined]
 
 
 def _setup_paths() -> None:
-    sys.path.insert(0, str(LAMBA_ROOT))
+    """``import utils`` → ``lamba_pilot/utils``; Uni3D net overlaid as ``utils.inc_net``."""
+    for p in (str(REPO_ROOT), str(LAMBA_ROOT)):
+        if p in sys.path:
+            sys.path.remove(p)
+    # LAMDA first so ``utils`` resolves to lamba_pilot/utils (factory, …).
     sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(LAMBA_ROOT))
     os.chdir(LAMBA_ROOT)
     if sys.path and sys.path[0] in ("", "."):
         sys.path.pop(0)
-    sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(LAMBA_ROOT))
+    for key in list(sys.modules):
+        if key == "utils" or key.startswith("utils."):
+            del sys.modules[key]
+    import utils as _lamba_utils  # noqa: F401
+
     _preload_root_inc_net()
 
 
