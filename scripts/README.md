@@ -8,7 +8,7 @@
 | `reproduce_crossdomain.sh` | 3D cross-domain FSCIL (EF+EB) |
 | `reproduce_image.sh` | Image FSCIL (CUB, iNF200, Aircraft; EF) |
 | `frost_common.sh` | Shared helpers (sourced by reproduce_*; do not sbatch) |
-| `summarize_pride_multiseed.py` | Aggregate 3D multi-seed logs |
+| `summarize_frost_multiseed.py` | Aggregate 3D multi-seed logs |
 | `summarize_fscil_results.py` | Shared log parser |
 | `summarize_frost_image_multiseed.sh` | Aggregate image multi-seed logs |
 | `check_frost_image_data.sh` | Preflight image data + ViT weights |

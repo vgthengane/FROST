@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Summarize PRidE image locked 5-seed campaign.
+# Summarize FROST image locked 5-seed campaign.
 #
 # Usage:
 #   bash scripts/summarize_frost_image_multiseed.sh
-#   bash scripts/summarize_frost_image_multiseed.sh --log-root _experiments/00_PRIDE_IMAGE_LOCKED_A05_RP2000_5SEEDS
+#   bash scripts/summarize_frost_image_multiseed.sh \
+#     --log-root _experiments/00_PRIDE_IMAGE_MEANONLY_A05_RP2000_5SEEDS \
+#     --insert mean1
+# (Folder name is historical; method is FROST.)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOGROOT="${REPO}/_experiments/00_PRIDE_IMAGE_LOCKED_A05_RP2000_5SEEDS"
-INSERT="mean_best2"  # or mean1
+LOGROOT="${REPO}/_experiments/00_PRIDE_IMAGE_MEANONLY_A05_RP2000_5SEEDS"
+INSERT="mean1"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --log-root) LOGROOT="${2:?}"; shift 2 ;;

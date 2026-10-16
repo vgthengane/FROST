@@ -16,8 +16,8 @@ Log layout (canonical)::
 
 Usage::
 
-    aprun python scripts/summarize_fscil_results.py --log-root _experiments/00_SIMPL_RUNs
-    aprun python scripts/summarize_fscil_results.py --log-root _experiments/00_SIMPL_RUNs --out _experiments/00_SIMPL_RUNs/results.md
+    python scripts/summarize_fscil_results.py --log-root _experiments/<campaign>
+    python scripts/summarize_fscil_results.py --log-root _experiments/<campaign> --out results.md
 """
 
 from __future__ import annotations

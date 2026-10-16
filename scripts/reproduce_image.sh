@@ -51,7 +51,8 @@ SEEDS_OVERRIDE=0
 SEEDS=()
 DATA_PATH="_datasets/images"
 VIT_CKPT="_experiments/pretrained_weights/ViT/vit_base_patch16_224.augreg_in21k.safetensors"
-export PRIDE_VIT_CKPT="$(pwd)/${VIT_CKPT}"
+export FROST_VIT_CKPT="$(pwd)/${VIT_CKPT}"
+export PRIDE_VIT_CKPT="${FROST_VIT_CKPT}"  # legacy alias
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
 
@@ -142,7 +143,7 @@ run_image_job() {
   local -a extra=(
     --set resume=false
     --set save_checkpoint=false
-    --set task0_save_warmup_ckpts=true
+    --set task0_save_warmup_ckpts=false
     --set task0_use_best_warmup=true
     --set num_workers=4
     --set "tuned_epoch=${ep_run}"

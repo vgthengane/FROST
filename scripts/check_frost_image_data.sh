@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Preflight for PRidE image FSCIL: offline ViT weights + LGSP datasets.
+# Preflight for FROST image FSCIL: offline ViT weights + LGSP datasets.
 #
 # Usage:
 #   bash scripts/check_frost_image_data.sh

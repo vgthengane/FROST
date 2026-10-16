@@ -28,7 +28,7 @@
 #   bash scripts/reproduce_crossdomain.sh --only-protocol sn_co3d --only-seed 2008 --buffer
 #
 # Summarize:
-#   python scripts/summarize_pride_multiseed.py --variant final_sub_both
+#   python scripts/summarize_frost_multiseed.py --variant final_sub_both
 # =============================================================================
 
 set -euo pipefail

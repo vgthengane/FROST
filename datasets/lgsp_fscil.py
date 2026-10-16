@@ -1,4 +1,4 @@
-"""LGSP-style image FSCIL datasets for PRidE / SelfEvo.
+"""LGSP-style image FSCIL datasets for FROST.
 
 Protocol source: https://github.com/Jywsuperman/LGSP (ICCV 2025)
 

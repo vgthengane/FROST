@@ -34,7 +34,11 @@ _HF_REPO_IDS = {
 
 def resolve_vit_checkpoint(timm_name: str) -> Optional[Path]:
     """Return a local checkpoint path, or None if none is available."""
-    env = os.environ.get("PRIDE_VIT_CKPT") or os.environ.get("SELFECO_VIT_CKPT")
+    env = (
+        os.environ.get("FROST_VIT_CKPT")
+        or os.environ.get("PRIDE_VIT_CKPT")  # legacy alias
+        or os.environ.get("SELFECO_VIT_CKPT")
+    )
     if env:
         path = Path(env).expanduser()
         if path.is_file():
@@ -88,7 +92,7 @@ def create_timm_vit(timm_name: str, num_classes: int = 0):
         return model
 
     logging.warning(
-        "No local ViT checkpoint for %s under %s (or PRIDE_VIT_CKPT). "
+        "No local ViT checkpoint for %s under %s (or FROST_VIT_CKPT). "
         "Falling back to HuggingFace download — this fails on offline compute nodes. "
         "Run: bash datasets/preprocess/download_vit_in21k.sh && sync _experiments/pretrained_weights/ViT",
         timm_name,

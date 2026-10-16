@@ -84,10 +84,11 @@ Details: [`SETUP.md`](SETUP.md) · configs: [`configs/README.md`](configs/README
 ## Summarize logs
 
 ```bash
-python scripts/summarize_pride_multiseed.py --variant final_sub_both
+python scripts/summarize_frost_multiseed.py --variant final_sub_both
 bash scripts/summarize_frost_image_multiseed.sh \
   --log-root _experiments/00_PRIDE_IMAGE_MEANONLY_A05_RP2000_5SEEDS \
   --insert mean1
+# (log-dir name is historical; method is FROST)
 ```
 
 Paper metrics: \(\mathcal{A}_b\) = session 0, \(\mathcal{A}_T\) = last session,  

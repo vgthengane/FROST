@@ -116,10 +116,10 @@ frost_log "Ablation idx=${IDX} tag=${tag} -> ${LOGFILE}"
 mkdir -p "$(dirname "${LOGFILE}")"
 "${RUNNER[@]}" train_fscil.py \
   --config "${CONFIG}" \
-  --seed "${SEED}" \
+  --logdir "${LOGROOT}" \
   --method-name "${METHOD}" \
   --log-layout flat \
-  --logroot "${LOGROOT}" \
+  --seeds "${SEED}" \
   "${EXTRA_ARGS[@]}" \
   2>&1 | tee "${LOGFILE}"
 

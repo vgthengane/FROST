@@ -96,7 +96,7 @@ def load_json(path: str | Path) -> dict:
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Image FSCIL with SelfEvo/PRidE on LGSP dataset splits."
+        description="Image FSCIL with FROST on LGSP dataset splits."
     )
     parser.add_argument(
         "--config",

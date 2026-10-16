@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize PRidE multi-seed FSCIL campaigns (α=0.5 EP10, 6 protocols).
+"""Summarize FROST multi-seed FSCIL campaigns (α=0.5 EP10, 6 protocols).
 
 Expects flat logs from::
 
@@ -14,13 +14,13 @@ Log patterns::
 
 Usage::
 
-    aprun python scripts/summarize_pride_multiseed.py --variant buffree
-    aprun python scripts/summarize_pride_multiseed.py --variant buf
-    aprun python scripts/summarize_pride_multiseed.py --variant both
-    aprun python scripts/summarize_pride_multiseed.py --variant final_sub_buffree
-    aprun python scripts/summarize_pride_multiseed.py --variant final_sub_buf
-    aprun python scripts/summarize_pride_multiseed.py --variant final_sub_both
-    aprun python scripts/summarize_pride_multiseed.py --variant final_sub_rp1000_both
+    python scripts/summarize_frost_multiseed.py --variant buffree
+    python scripts/summarize_frost_multiseed.py --variant buf
+    python scripts/summarize_frost_multiseed.py --variant both
+    python scripts/summarize_frost_multiseed.py --variant final_sub_buffree
+    python scripts/summarize_frost_multiseed.py --variant final_sub_buf
+    python scripts/summarize_frost_multiseed.py --variant final_sub_both
+    python scripts/summarize_frost_multiseed.py --variant final_sub_rp1000_both
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def summarize_variant(variant: str, log_root: Path | None, out: Path | None) -> 
     discovered = discover_logs(root)
 
     lines: list[str] = [
-        f"# PRidE multi-seed — α=0.5 EP10 ({label})",
+        f"# FROST multi-seed — α=0.5 EP10 ({label})",
         "",
         f"Log root: `{root}`",
         f"Expected seeds: {', '.join(str(s) for s in expected_seeds)}",

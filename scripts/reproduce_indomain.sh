@@ -34,7 +34,7 @@
 #   bash scripts/reproduce_indomain.sh --only-protocol mn40 --only-seed 2008 --buffer-free
 #
 # Summarize:
-#   python scripts/summarize_pride_multiseed.py --variant final_sub_both
+#   python scripts/summarize_frost_multiseed.py --variant final_sub_both
 # =============================================================================
 
 set -euo pipefail
