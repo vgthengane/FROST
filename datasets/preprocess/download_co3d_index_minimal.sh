@@ -8,6 +8,10 @@
 # Log: _experiments/logs/co3d_index_minimal_download.log
 
 set -euo pipefail
+# Plain python by default; lab: export FROST_PYTHON="aprun python"
+run_py() { # shellcheck disable=SC2086
+  ${FROST_PYTHON:-python} "$@";
+}
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CO3D_REPO="${CO3D_REPO:-$REPO/third_party/co3d}"
 OUT="${OUT:-$REPO/_datasets/co3d_minimal}"
@@ -31,7 +35,7 @@ prune_category() {
   local TMP="$OUT/_keep_tmp/$CAT"
 
   mkdir -p "$TMP"
-  aprun python - "$CAT" "$CAT_DIR" "$TMP" "$INDEX" <<'PY'
+  run_py - "$CAT" "$CAT_DIR" "$TMP" "$INDEX" <<'PY'
 import shutil, sys
 from pathlib import Path
 
@@ -77,7 +81,7 @@ PY
 download_category() {
   local CAT="$1"
   log "Download start: $CAT"
-  aprun python "$CO3D_REPO/co3d/download_dataset.py" \
+  run_py "$CO3D_REPO/co3d/download_dataset.py" \
     --download_folder "$OUT" \
     --download_categories "$CAT" \
     --n_download_workers 2 \

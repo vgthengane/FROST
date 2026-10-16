@@ -10,6 +10,20 @@
 
 # shellcheck disable=SC2034
 
+# Python launcher.
+# Prefer FROST_PYTHON if set; else ``aprun python`` when aprun exists (EuroHPC);
+# else plain ``python`` (publishable default).
+frost_init_runner() {
+  if [[ -n "${FROST_PYTHON:-}" ]]; then
+    # shellcheck disable=SC2206
+    RUNNER=(${FROST_PYTHON})
+  elif command -v aprun >/dev/null 2>&1; then
+    RUNNER=(aprun python)
+  else
+    RUNNER=(python)
+  fi
+}
+
 frost_log() { echo "[$(date -Is)] $*"; }
 
 frost_log_is_complete() {

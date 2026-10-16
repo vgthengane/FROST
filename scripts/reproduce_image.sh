@@ -45,7 +45,7 @@ cd "${REPO_ROOT}"
 # shellcheck source=frost_common.sh
 source "${REPO_ROOT}/scripts/frost_common.sh"
 
-RUNNER=(aprun python)
+frost_init_runner
 FULLSEEDS=0
 SEEDS_OVERRIDE=0
 SEEDS=()
@@ -66,7 +66,7 @@ BUDGET=600
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --local) RUNNER=(aprun python); shift ;;
+    --local) frost_init_runner; shift ;;
     --fullseeds) FULLSEEDS=1; shift ;;
     --skip-done) SKIP_DONE=1; shift ;;
     --smoke) SMOKE=1; shift ;;

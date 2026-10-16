@@ -28,7 +28,7 @@
 #   bash scripts/reproduce_crossdomain.sh --only-protocol sn_co3d --only-seed 2008 --buffer
 #
 # Summarize:
-#   aprun python scripts/summarize_pride_multiseed.py --variant final_sub_both
+#   python scripts/summarize_pride_multiseed.py --variant final_sub_both
 # =============================================================================
 
 set -euo pipefail
@@ -37,7 +37,7 @@ cd "${REPO_ROOT}"
 # shellcheck source=frost_common.sh
 source "${REPO_ROOT}/scripts/frost_common.sh"
 
-RUNNER=(aprun python)
+frost_init_runner
 WANT_EF=0
 WANT_EB=0
 FULLSEEDS=0
@@ -51,7 +51,7 @@ SEEDS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --local) RUNNER=(aprun python); shift ;;
+    --local) frost_init_runner; shift ;;
     --buffer-free|--buffree|--ef) WANT_EF=1; shift ;;
     --buffer|--buf|--eb) WANT_EB=1; shift ;;
     --fullseeds) FULLSEEDS=1; shift ;;

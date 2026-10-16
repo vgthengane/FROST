@@ -1,8 +1,9 @@
-# FROST datasets
+# Datasets
 
 Raw data lives under **local** `_datasets/` (gitignored). This file is part of the **code release** so others can reproduce downloads and licences without shipping the data.
 
-Do **not** commit or redistribute the contents of `_datasets/`.
+Do **not** commit or redistribute the contents of `_datasets/`.  
+Session indexes ship in-repo under `datasets/session_pclouds/` and `datasets/session_images/`.
 
 ## Layout (canonical)
 
@@ -100,7 +101,7 @@ We are **not** lawyers. Licence summaries below are **best-effort** for research
 
 ```bash
 # After official CO3D ply is on disk (see download_co3d_index_minimal.sh):
-aprun python datasets/preprocess/build_co3d_official_1024_normals.py
+python datasets/preprocess/build_co3d_official_1024_normals.py
 ```
 
 ---
@@ -161,21 +162,19 @@ bash scripts/check_frost_image_data.sh --data-path _datasets/images
 
 ---
 
-## Recommended reproduce checklist (for others)
+## Reproduce checklist
 
-1. Clone FROST code only (no `_datasets/` in git).
+1. Clone this repo (no `_datasets/` in git).
 2. **Read and accept** each dataset’s ToU / licence (especially ShapeNet, ScanObjectNN, CO3D, Aircraft).
-3. Download with the scripts above (or official pages) into the layout in this file.
-4. Place Uni3D / ViT weights under `_experiments/pretrained_weights/` (`datasets/preprocess/download_vit_in21k.sh`).
-5. Run `scripts/reproduce_indomain.sh` / `reproduce_crossdomain.sh` / `reproduce_image.sh`.
-
-See also `_notes/REPRODUCE.md`.
+3. Download with `datasets/preprocess/download_*.sh` (or official pages) into the layout above.
+4. Place Uni3D / ViT weights under `_experiments/pretrained_weights/` (`download_vit_in21k.sh`).
+5. Run `scripts/reproduce_{indomain,crossdomain,image}.sh` (see [`README.md`](README.md)).
 
 ---
 
 ## Paper / release wording (suggested)
 
-> Datasets are obtained from their official sources under each provider’s licence or Terms of Use. We do **not** redistribute ModelNet40, ShapeNet, ScanObjectNN, CO3D, CUB-200-2011, FGVC-Aircraft, or iNF200 with this release. Scripts to download and arrange data into the layout expected by FROST are provided in `scripts/` and documented in `DATASETS.md`. Users must accept the relevant licences before downloading.
+> Datasets are obtained from their official sources under each provider’s licence or Terms of Use. We do **not** redistribute ModelNet40, ShapeNet, ScanObjectNN, CO3D, CUB-200-2011, FGVC-Aircraft, or iNF200 with this release. Scripts to download and arrange data into the layout expected by FROST are provided under `datasets/preprocess/` and documented in `DATASETS.md`. Users must accept the relevant licences before downloading.
 
 ---
 

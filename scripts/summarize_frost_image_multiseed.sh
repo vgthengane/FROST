@@ -27,7 +27,7 @@ if [[ "${INSERT}" == "mean_best2" && "${LOGROOT}" == *MEANONLY* ]]; then
   INSERT="mean1"
 fi
 
-aprun python - "${LOGROOT}" "${INSERT}" <<'PY'
+python - "${LOGROOT}" "${INSERT}" <<'PY'
 import re
 import statistics as st
 import sys

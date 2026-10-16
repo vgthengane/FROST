@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Download official CUB-200-2011 for LGSP image FSCIL.
 #
-# Prefer a path under /vol/research/... so default ``aprun`` can see it
+# Prefer a path under /vol/research/... so default python env can see it
 # (``/scratch`` is NOT bound unless you pass ``--bind /scratch``).
 #
 # Extracts as CUB_200_2011 then renames to CUB200 (canonical FROST layout).

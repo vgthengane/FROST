@@ -14,4 +14,7 @@ Helpers that live next to `datasets/` loaders. Training entrypoints stay under `
 | `patch_shapenet55_bicycle.py` | ShapeNet55 bicycle class patch |
 | `print_fscil_protocol.py` | Print FSCIL-3D session schedules |
 
+Run builders with plain `python` (e.g. `python datasets/preprocess/build_co3d_official_1024_normals.py`).  
+Some download helpers still call `aprun` in this lab — override with `FROST_PYTHON` or edit as needed until the public install guide lands.
+
 See `DATASETS.md` for licences and layout.

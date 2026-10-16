@@ -2,7 +2,7 @@
 # Remote Leonardo helpers from Surrey (or any host with a live Cineca SSH cert).
 #
 # Prerequisites:
-#   1) Short-lived Cineca OIDC cert in an ssh-agent (via sync.sh / leonardo.sh).
+#   1) Short-lived Cineca OIDC cert in an ssh-agent (via sync.sh --code).
 #      Certs expire; renew with browser SSO when needed.
 #   2) Network path to login.leonardo.cineca.it
 #
@@ -47,7 +47,6 @@ ensure_agent() {
     "No Cineca SSH certificate found in any ssh-agent.
 Renew once (interactive), then retry:
   bash sync.sh --code --force
-  # or: bash leonardo.sh --renew
 On Surrey this needs a Mac tunnel:
   ssh -N -L 10000:127.0.0.1:10000 surrey_ws"
   export SSH_AUTH_SOCK="${sock}"

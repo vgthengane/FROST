@@ -9,6 +9,10 @@
 #   bash datasets/preprocess/download_vit_in21k.sh
 #   bash datasets/preprocess/download_vit_in21k.sh /path/to/_experiments/pretrained_weights/ViT
 set -euo pipefail
+# Plain python by default; lab: export FROST_PYTHON="aprun python"
+run_py() { # shellcheck disable=SC2086
+  ${FROST_PYTHON:-python} "$@";
+}
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEST="${1:-${REPO}/_experiments/pretrained_weights/ViT}"
@@ -39,7 +43,7 @@ download_hf() {
   local repo="$1"
   local dest="$2"
   echo "Downloading ${repo} via huggingface_hub -> ${dest}"
-  aprun python - <<PY
+  run_py - <<PY
 from huggingface_hub import hf_hub_download
 import shutil
 path = hf_hub_download(repo_id="${repo}", filename="model.safetensors")

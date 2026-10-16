@@ -1,330 +1,158 @@
-# Experimental Setup and Implementation Details
+# Experimental setup (paper recipe)
 
-Code-derived reference for FSCIL experiments. Values map to config keys, code defaults, or campaign-script `--set` flags.
+Code-aligned reference for the **locked FROST** FSCIL recipe.  
+Configs: `configs/base/{pclouds,images}.json` + `configs/frost_*.json` ([`configs/README.md`](configs/README.md)).  
+Method: `frost/` · presets: `utils/fscil_ablation_config.py` · flatten: `utils/config_load.py`.
 
-**Primary sources:** `configs/frost_pc_*.json` / `configs/frost_img_*.json` (see `configs/README.md`), `frost/` (`frost.py`, `corrmem.py`, `protomem.py`), `backbone/uni3d_adapter.py`, `datasets/fscil_protocol.py`, `utils/fscil_ablation_config.py`.
+For launchers and seeds see [`README.md`](README.md) and [`scripts/README.md`](scripts/README.md).
 
 ---
 
 ## 1. Software and hardware
 
-| Item | Value | Source |
-|------|-------|--------|
-| Framework | PyTorch | `train_fscil.py` |
-| Entry point | `aprun python train_fscil.py --config …` | repo rules + SLURM scripts |
-| GPU | 1 GPU per job (`--gpus=1`) | SLURM scripts |
-| Host memory | 64 GB (`--mem=64G`) | SLURM scripts |
-| CPUs | 24 (`--cpus-per-task=24`) | SLURM scripts |
-| Random seed | `2008` | FSCIL configs `seed: [2008]`; campaign scripts `SEED=2008` |
-| Exemplar replay seed | `2008` | `fscil_old_shot_replay_seed: 2008` |
-| Exemplar memory buffer | disabled | `memory_size: 0`, `memory_per_class: 0` |
+| Item | Value |
+|------|-------|
+| Framework | PyTorch |
+| Entry | `train_fscil.py` (3D) / `train_fscil_image.py` (2D) |
+| Python | Plain `python` (install guide TBD). Optional: `export FROST_PYTHON="aprun python"` on EuroHPC |
+| GPU / mem (SLURM defaults) | 1 GPU, 32–64 GB host, 8–24 CPUs |
+| Paper seeds | `1947, 1991, 2001, 2008, 2019` (default run = first only; `--fullseeds` for all) |
 
 ---
 
-## 2. Backbone and encoder
+## 2. Backbones
 
-| Item | Value | Config key |
-|------|-------|------------|
-| Method | `selfevo` (or `selfevo_bufferfree` for buffer-free) | `model_name` |
-| Pretrained encoder | Uni3D-Base | `pretrained_pc: _experiments/pretrained_weights/Uni3D/uni3d-b.pt` |
-| Backbone type | `uni3d_base_patch14_448` | `backbone_type` |
-| Internal point transformer | `eva02_base_patch14_448` | `pc_model` |
-| Embedding dim \(d\) | **1024** | `embed_dim: 1024` |
-| Transformer dim | 768 | `trans_dim: 768` |
-| Encoder dim | 512 | `encoder_dim: 512` |
-| Point groups | 512 groups × 64 points | `num_group: 512`, `group_size: 64` |
-| Text encoder | **not used** | `classifier_mode: ridge_cache` |
-
-Working representation: \(\mathbf{z} = (\phi \circ f_\theta)(\mathbf{x}) \in \mathbb{R}^{1024}\).
-
-Unlike vision–language FSCIL methods, this pipeline is **vision-only** (no text encoder).
-
----
-
-## 3. Adapter \(\phi\)
-
-| Item | Value | Source |
-|------|-------|--------|
-| Type | AdaptFormer-style bottleneck MLP per transformer block | `backbone/uni3d_adapter.py` |
-| Bottleneck dim \(d'\) | **64** | `ffn_num: 64` |
-| Init | LoRA-style | `ffn_adapter_init_option: "lora"` (adapter default) |
-| Adapter scale | 0.1 | `ffn_adapter_scalar: "0.1"` |
-| Backbone | **frozen** always | `selfevo.py` `_freeze_backbone()` |
-| Trainable at task 0 | adapter (+ optionally FC during warmup) | `_set_adapter_warmup_trainable()` |
-
-### Final campaign overrides
-
-`scripts/simpl_runs_final_ep10_baseonly.sh` and `scripts/simpl_runs_final_hybrid_closefar.sh` set:
-
-| Flag | Effect |
-|------|--------|
-| `fscil_adapter_base_only=true` | adapter trained **only** on base session |
-| `increment_adapter_warmup=false` | no adapter training on novel sessions |
-| `fscil_task1_adapter_warmup=false` | no task-1 adapter warmup |
-| `fscil_classifier_warmup_after_protos=false` | no classifier-aligned adapter warmup after protos |
-
-**Note:** paper recipe lives in `configs/base/pclouds.json` / `configs/base/images.json`. Reproduce scripts may still pass matching `--set` overrides for safety.
-
----
-
-## 4. Base-session adapter training (task \(t=0\))
-
-| Item | Value | Config / code |
-|------|-------|---------------|
-| Epochs | **10** | `tuned_epoch: 10` |
-| Optimizer | **SGD**, momentum **0.9** | `task0_optimizer: "sgd"`; `optim.SGD(..., momentum=0.9)` |
-| Learning rate | **\(10^{-3}\)** | `task0_init_lr: 0.001` |
-| Weight decay | **\(10^{-4}\)** | `task0_weight_decay: 0.0001` |
-| LR schedule | Cosine annealing to `min_lr=0` | `CosineAnnealingLR(T_max=tuned_epoch, eta_min=0)` |
-| Batch size | **8** | `batch_size: 8` |
-| DataLoader workers | 4 | `num_workers: 4` |
-| Checkpoint selection | best test accuracy epoch | `task0_use_best_warmup: true` |
-| Save warmup ckpts | yes | `task0_save_warmup_ckpts: true` |
-| Point augmentation at task 0 | **off** | `task0_point_augment: false` |
-| Training data | full base-class train split only | `prepare_fscil_task_datasets`, task 0 |
-
----
-
-## 5. Point-cloud input
+### Point clouds
 
 | Item | Value | Config |
 |------|-------|--------|
-| Points per shape \(M\) | **1024** | `num_point: 1024` |
-| Sampling | farthest-point (uniform) | `use_uniform_sample: true` |
-| Normals | **on** (6D inputs) | `use_normals: true` |
-| Preprocessing | on | `process_data: true` |
-| Class order | fixed | `shuffle: false`, `fscil3d_protocol` set |
+| Method | `frost` / `frost_bufferfree` | `model_name` |
+| Encoder | Uni3D-Base (frozen) | `pretrained_pc` |
+| Backbone | `uni3d_base_patch14_448` | `backbone_type` |
+| Embed dim \(d\) | 1024 | `embed_dim` |
+| Points \(M\) | 1024 + normals | `num_point`, `use_normals` |
+| Batch size | 8 | `batch_size` |
 
----
-
-## 6. FSCIL session protocol
-
-| Item | Value | Source |
-|------|-------|--------|
-| Protocol | FSCIL-3D class order | `fscil3d_protocol` + `datasets/fscil3d_index.py` |
-| Few-shot protocol | on | `fscil_shot_protocol: true` |
-| Base session data | full train split per base class | `datasets/fscil_protocol.py` |
-| Novel session data | **5 shots/class** | `increment_train_per_class: 5` |
-| Old-class disk replay | **1 shot/class** (buffer variant) | `fscil_old_shot_replay: 1` |
-| Buffer-free variant | **0** old shots | `model_name=selfevo_bufferfree` → `exemplar_buffer_shots: 0` |
-
-### Session schedules (`load_protocol`)
-
-| Protocol | Sessions | Base | Novel | Total |
-|----------|----------|------|-------|-------|
-| ModelNet40 | 5 | 20 | 20 | 40 |
-| ShapeNet | 7 | 25 | 30 | 55 |
-| CO3D | 6 | 25 | 25 | 50 |
-| MN40 → ScanObjectNN | 4 | 26 | 11 | 37 |
-| SN55 → ScanObjectNN | 4 | 44 | 15 | 59 |
-| SN55 → CO3D | 11 | 39 | 50 | 89 |
-
-### Intra- vs cross-dataset
-
-- **Intra-dataset:** base and novel classes from the same benchmark (ModelNet40, ShapeNet, CO3D).
-- **Cross-dataset:** synthetic source for base session, real-scan target for novel classes (MN40→ScanObj, SN55→ScanObj, SN55→CO3D).
-
----
-
-## 7. Per-session pipeline
-
-Order in `models/selfevo.py::_train` at each session \(t\):
-
-1. **Adapter warmup** (task 0 only in final campaigns)
-2. Freeze backbone; collect embeddings from `train_loader_for_protonet`
-3. **Insert ProtoMem prototypes**
-4. **Ridge update** on \(\mathcal{D}_t^{\mathrm{ridge}}\):
-   - novel few-shot embeddings (+ optional exemplar buffer shots in proto dataset)
-   - optional `_refresh_ridge_from_exemplar_buffer()` at \(t>0\) (1 shot/class, weight `fscil_base_ridge_refresh_weight=1.0`)
-   - few-shot ridge up-weight: `fscil_novel_ridge_weight` (1.5 MN40, 2.5 SN55)
-   - optional noise doubling: `fscil_ridge_proto_noise_std=0.015`
-5. Optional classifier warmup after protos (off in final campaigns)
-6. Build **adaptation batch** \(\mathcal{A}_t = \mathcal{D}_t^{\mathrm{novel}} \cup \mathcal{P}_t\) where \(\mathcal{P}_t\) = ProtoMem keys (`old_data_source: cache`)
-7. **Cache evolution** (if `evolution_policy=rules`)
-8. **Conflict replay** into ridge (if enabled)
-
-**Ridge vs adaptation batch:** primary \(\mathbf{G}_t,\mathbf{Q}_t\) accumulation uses \(\mathcal{D}_t^{\mathrm{ridge}} = \mathcal{D}_t^{\mathrm{novel}} \cup \mathcal{E}_t\) (few-shot + optional disk exemplars). The adaptation batch (few-shot + cache prototypes) drives **cache evolution**; cache prototypes enter ridge only via optional **conflict replay**.
-
----
-
-## 8. Analytical ridge head
-
-| Item | Value | Config / code |
-|------|-------|---------------|
-| Classifier mode | ridge + cache fusion | `classifier_mode: ridge_cache` |
-| Random projection dim \(B\) | **1000** | `ridge_rp_dim: 1000` |
-| Random map | \(h(\mathbf{z})=\mathrm{ReLU}(\mathbf{z} W_{\mathrm{rand}})\) | `CorrMem._project()` |
-| \(W_{\mathrm{rand}}\) | sampled once, seed = run seed | `CorrMem.__init__(seed=…)` |
-| Sufficient stats | \(\mathbf{G}\in\mathbb{R}^{B\times B}\), \(\mathbf{Q}\in\mathbb{R}^{B\times C_t}\) | `CorrMem.G`, `CorrMem.Q` |
-| Ridge penalty \(\lambda\) | grid search at task 0 | `fit_ridge=True` when `ridge_head.ridge is None` |
-| \(\lambda\) grid min | \(10^{-8}\) | `ridge_lambda_min` default in `selfevo.py` |
-| \(\lambda\) grid max | auto (up to \(10^8\)) or `ridge_lambda_max` | SN55: `ridge_lambda_max: 100000.0` |
-| Validation fraction for \(\lambda\) | 20% | `ridge_val_fraction: 0.2` (code default) |
-| Closed form | \(W=(\mathbf{G}+\lambda I)^{-1}\mathbf{Q}\) | `CorrMem._solve_weights()` |
-| Config key for \(\lambda\) | `ridge_lambda` (optional); stored as `CorrMem.ridge` | `frost/corrmem.py` |
-
----
-
-## 9. Ridge–cache fusion
+### Images
 
 | Item | Value | Config |
 |------|-------|--------|
-| Fusion | \(\alpha_t \ell^{\mathrm{ridge}} + (1-\alpha_t)\ell^{\mathrm{cache}}\) | `_classify()`, `ridge_cache` mode |
-| Base \(\alpha\) | **0.85** | `ridge_cache_alpha: 0.85` |
-| Increment \(\alpha\) floor | **0.45** | `fscil_increment_ridge_alpha: 0.45` |
-| Task-1 \(\alpha\) | **0.45** (if set) | `fscil_task1_ridge_alpha: 0.45` |
-| Last-task \(\alpha\) (SN55) | **0.45** | `fscil_last_task_ridge_alpha: 0.45` |
-
-On few-shot sessions, `_effective_ridge_alpha()` reduces \(\alpha_t\) from 0.85 toward 0.45.
+| Encoder | ViT-B/16 ImageNet-21k + adapter | `backbone_type` |
+| Data root | `_datasets/images` | `data_path` |
+| Sessions | `datasets/session_images` | `sessions_root` |
+| Batch size | 48 | `batch_size` |
 
 ---
 
-## 10. ProtoMem (canonical JSON — MN40 example)
+## 3. Paper modules
 
-| Item | Value | Config |
-|------|-------|--------|
-| Feature dim | 1024 | `embed_dim` |
-| Insert strategy (base task) | mean (1 proto/class) | `insert_strategy` default `"mean"` |
-| Increment insert (JSON default) | per-shot if `fscil_shot_prototypes=true` | `_fscil_prototype_settings()` |
-| Max prototypes/class | 3 (JSON) | `max_prototypes_per_class: 3` |
-| Increment max protos | 8 (JSON) | `fscil_increment_max_prototypes: 8` |
-| Cache budget | 200 (MN40), 380 (SN55) | `cache_budget` |
-| Pooling | log-sum-exp | `prototype_pooling: logsumexp` |
-| Temperature \(\tau\) | 0.07 | `pooling_temperature: 0.07` |
-| Evolution | rules (merge/split/refresh/evict) | `evolution_policy: rules` |
-| Merge threshold | 0.95 | `merge_threshold: 0.95` |
-| Split confusion threshold | 0.15 | `split_confusion_threshold: 0.15` |
-| Recall refresh threshold | 0.85 | `recall_refresh_threshold: 0.85` |
-| Gated growth | on (MN40/SN55) | `enable_gated_growth: true` |
-| Gated growth recall thr. | 0.92 | `gated_growth_recall_threshold: 0.92` |
-| Gated growth max classes | 4 | `gated_growth_max_classes: 4` |
-| Novel gated growth | on | `fscil_gated_growth_novel: true` |
-| Novel gated growth thr. | 0.80 | `fscil_novel_gated_growth_threshold: 0.80` |
-| Novel gated growth max cls | 5 | `fscil_novel_gated_growth_max_classes: 5` |
-| Old-class proxies | from cache keys | `old_data_source: cache` |
+### Adapter
 
----
+| Item | Paper value |
+|------|-------------|
+| Type | AdaptFormer bottleneck, \(d'{=}64\) (`ffn_num`) |
+| Schedule | **Base session only**, 10 epochs |
+| Novel sessions | adapter frozen (`increment_warmup=false`) |
+| 3D LR / WD | \(10^{-3}\) / \(10^{-4}\) (SGD, cosine) |
+| Image LR | \(10^{-2}\) (SGD) |
 
-## 11. Exemplar buffer and conflict replay
+### CorrMem (`frost/corrmem.py`)
 
-### Buffer variant (`fscil_preset=canonical`)
+| Item | Paper value |
+|------|-------------|
+| Lift width \(V\) | **2000** (`corrmem.lift_v` → `ridge_rp_dim`) |
+| Map | \(\mathrm{ReLU}(\mathbf{z} W_{\mathrm{rand}})\), \(W\) fixed from run seed |
+| Solver | Analytical ridge on sufficient stats \(\mathbf{G},\mathbf{Q}\) |
+| \(\lambda\) | Grid search on task 0 |
 
-| Item | Value |
-|------|-------|
-| Old-class disk shots | 1/class |
-| Ridge refresh shots | 1/class |
-| Old-class proxies for adaptation | ProtoMem keys (`old_data_source: cache`) |
+### ProtoMem (`frost/protomem.py`)
 
-### Buffer-free (`model_name=selfevo_bufferfree`)
+| Item | Paper value |
+|------|-------------|
+| Insert | **mean only** (1 key/class) |
+| Evolution | **static** (no merge/split in main row) |
+| Pooling | max (preset) |
 
-| Item | Value |
-|------|-------|
-| Disk exemplars | 0 |
-| Proxies | ProtoMem only |
+### Fusion
 
-### Conflict replay (MN40 canonical JSON)
+| Item | Paper value |
+|------|-------------|
+| Mode | `corr_proto` (`classifier_mode=ridge_cache` internally) |
+| \(\alpha\) | **0.5** flat (CorrMem weight) |
 
-| Item | Value |
-|------|-------|
-| Enabled | `conflict_replay: true` |
-| CM source (JSON) | test split (`conflict_replay_on_test: true`) |
-| CM source (final ep10 script) | **train** (`conflict_replay_on_test=false`) |
-| Max old classes replayed | 20 |
-| Max novel classes replayed | 5 |
-| Old replay weight | 2.5 |
-| Novel replay weight | 5.0 |
-| Old recall threshold | 0.85 |
-| Novel recall threshold | 0.55 (MN40), 0.50 (SN55) |
+Score: \(\alpha\,\ell^{\mathrm{CorrMem}}+(1-\alpha)\,\ell^{\mathrm{ProtoMem}}\).
 
 ---
 
-## 12. Prototype regimes (final campaigns)
+## 4. EF vs EB
 
-Campaign scripts **override** JSON defaults.
+| Variant | `model_name` | `fscil_preset` | Disk exemplars |
+|---------|--------------|----------------|----------------|
+| **EF** (main) | `frost_bufferfree` | `exemplar_buffer_free` | 0 |
+| **EB** (twin) | `frost` | `canonical` | 1 shot/old class |
 
-### `simpl_runs_final_ep10_baseonly.sh`
+Reproduce scripts flip EF/EB with `--buffer-free` / `--buffer` (no separate JSON for EB).
 
-6 protocols × 2 buffer modes × 6 regimes = 72 jobs. Logs: `_experiments/00_FINAL_EP10_BASEONLY/`.
-
-| Regime | `fscil_shot_prototypes` | Insert strategy | Max proto/class | Evolution | Keys/class (incr.) |
-|--------|-------------------------|-----------------|-----------------|-----------|-------------------|
-| `mean_st` | false | mean | 1 | static | 1 |
-| `pshot_evo` | true | per_sample* | 3 | rules | up to 5 |
-| `pshot_evo5` | true | per_sample* | 5 | rules | up to 5 |
-| `pshot_st` | true | per_sample* | 5 | static | up to 5 |
-| `hybrid3_st` | false | mean_close_far | 3 | static | mean + close + far |
-| `hybrid4_evo` | false | mean_close_far | 3 | rules | up to 4 |
-
-\*When `fscil_shot_prototypes=true`, `_fscil_prototype_settings()` forces `per_sample` on increment tasks.
-
-### `simpl_runs_final_hybrid_closefar.sh`
-
-6 protocols × 4 regimes, buffer-free only. Logs: `_experiments/00_FINAL_EP5_HYBRID_CLOSEFAR/`. Base adapter: **5 epochs** (`tuned_epoch=5`).
-
-| Regime | Insert strategy | Max proto/class | Evolution |
-|--------|-----------------|-----------------|-----------|
-| `hybrid3_st` | mean_close_far | 3 | static |
-| `hybrid4_evo` | mean_close_far | 3 | rules |
-| `hybrid_nearmean_st` | mean_nearmean | 2 | static |
-| `fps5_st` | cluster (FPS) | 5 | static |
-
-### Hybrid insert semantics (`frost/protomem.py`)
-
-- `mean_close_far`: class mean + closest shot + farthest shot to mean
-- `mean_nearmean`: class mean + shot closest to mean
-- `cluster`: farthest-point sampling on few-shot embeddings
+Conflict replay uses **train-side** confusion (`conflict_replay_use_test_cm=false`).
 
 ---
 
-## 13. Per-protocol config differences
+## 5. FSCIL protocols
 
-Not all hyperparameters are shared across benchmarks.
+Session class IDs: `datasets/session_pclouds/` via `datasets/fscil3d_index.py`.
 
-| Setting | MN40 | SN55 | Cross-domain (MN→ScanObj) |
-|---------|------|------|---------------------------|
-| `cache_budget` | 200 | 380 | 200 |
-| `fscil_novel_ridge_weight` | 1.5 | 2.5 | (not in JSON) |
-| `conflict_replay` | true | true | **false** |
-| `increment_adapter_warmup` | true (JSON) | true (JSON) | true (JSON) |
-| `fscil_task1_adapter_warmup` | false | false | **true** |
-| `ridge_lambda_max` | auto | 100000 | auto |
+| Protocol | Sessions | Base + novel |
+|----------|----------|--------------|
+| ModelNet40 | 5 | 20 + 4×5 |
+| ShapeNet55 | 7 | 25 + 5×6 |
+| CO3D | 6 | 25 + 5×5 |
+| MN → ScanObjectNN | 4 | 26 + … |
+| SN → ScanObjectNN | 4 | 44 + … |
+| SN → CO3D | 11 | 39 + 5×10 |
+| CUB / iNF / Aircraft | LGSP sessions | see `session_images/` |
+
+Novel sessions: **5 shots/class** (`increment_train_per_class: 5`).
 
 ---
 
-## 14. Canonical config files
+## 6. Per-session pipeline (sketch)
+
+1. Adapter warmup (task 0 only, paper recipe)  
+2. Freeze backbone; extract embeddings  
+3. Insert ProtoMem means  
+4. Update CorrMem ridge stats  
+5. Optional conflict replay (train CM)  
+6. Classify with fusion  
+
+---
+
+## 7. Config map
 
 | Protocol | Config |
 |----------|--------|
-| ModelNet40 intra | `configs/frost_pc_in_mn40.json` (EB via `--buffer` in reproduce scripts) |
-| ShapeNet intra | `configs/frost_pc_in_sn55.json` |
-| CO3D intra | `configs/frost_pc_in_co3d.json` |
-| MN40 → ScanObjectNN | `configs/frost_pc_cross_mn40_scanobj.json` |
-| SN55 → ScanObjectNN | `configs/frost_pc_cross_sn55_scanobj.json` |
-| SN55 → CO3D | `configs/frost_pc_cross_sn55_co3d.json` |
-| CUB / iNF / Aircraft | `configs/frost_img_{cub200,inf200,aircraft}.json` (EF only) |
+| MN40 / SN55 / CO3D | `configs/frost_pc_in_{mn40,sn55,co3d}.json` |
+| Cross-domain | `configs/frost_pc_cross_*.json` |
+| CUB / iNF / Aircraft | `configs/frost_img_*.json` |
+
+Paper blocks in JSON (`adapter`, `corrmem`, `protomem`, `fusion`) are flattened by `utils/config_load.py`.
 
 ---
 
-## 15. Launch commands
+## 8. Metrics
 
-```bash
-# Final ep10 base-only campaign (72 jobs)
-sbatch scripts/simpl_runs_final_ep10_baseonly.sh
+| Symbol | Meaning |
+|--------|---------|
+| \(\mathcal{A}_b\) | Session-0 total accuracy |
+| \(\mathcal{A}_T\) | Last-session total accuracy |
+| \(\bar{\mathcal{A}}\) | Mean of per-session total accuracies (`Average Accuracy (CNN)`) |
+| \(\Delta\) | \(100(\mathcal{A}_b-\mathcal{A}_T)/\mathcal{A}_b\) |
 
-# Hybrid close/far ablation (24 jobs, buffer-free, ep5 adapter)
-sbatch scripts/simpl_runs_final_hybrid_closefar.sh
-
-# Single local smoke
-bash scripts/simpl_runs_final_ep10_baseonly.sh --local --smoke --array 0
-```
-
-Always run Python via `aprun python` on Leonardo.
+**Do not** report \(\bar{\mathcal{A}}=(\mathcal{A}_b+\mathcal{A}_T)/2\).
 
 ---
 
-## 16. Paper writing notes
+## 9. Writing notes
 
-- Use **ridge penalty** \(\lambda\) (config: `ridge_lambda`, code: `CorrMem.ridge`). Do not confuse with fusion weight \(\alpha_t\) (`ridge_cache_alpha`).
-- Batch size is **8**, not 32. Base adapter LR is **\(10^{-3}\)**, not \(10^{-4}\) (weight decay is \(10^{-4}\)).
-- Pick one prototype regime as the **main method** in the paper; list others as ablations (Section 12).
-- JSON defaults ≠ final campaign overrides: cite which launcher you used for main results.
+- \(\lambda\) = ridge penalty; \(\alpha\) = fusion weight — do not conflate.  
+- Main tables: **mean-only**, \(V{=}2000\), \(\alpha{=}0.5\). Other inserts / \(V{=}1000\) are ablations only.  
+- Cite the reproduce launcher or config used for each table row.

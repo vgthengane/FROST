@@ -50,17 +50,17 @@ pass `--fullseeds` (train entrypoints or reproduce scripts) for all five.
 
 ```bash
 # 3D — first seed only (default)
-aprun python train_fscil.py --config configs/frost_pc_in_mn40.json
+python train_fscil.py --config configs/frost_pc_in_mn40.json
 
 # 3D — all paper seeds
-aprun python train_fscil.py --config configs/frost_pc_in_mn40.json --fullseeds
+python train_fscil.py --config configs/frost_pc_in_mn40.json --fullseeds
 
 # 3D EB via script flag
 sbatch scripts/reproduce_indomain.sh
 sbatch --array=0-29 scripts/reproduce_indomain.sh --fullseeds
 
 # Image
-aprun python train_fscil_image.py --config configs/frost_img_cub200.json
+python train_fscil_image.py --config configs/frost_img_cub200.json
 sbatch --array=0-14 scripts/reproduce_image.sh --fullseeds
 ```
 

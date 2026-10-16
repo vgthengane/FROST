@@ -13,8 +13,12 @@
 #   bash datasets/preprocess/download_inf200.sh
 #   bash datasets/preprocess/download_inf200.sh /leonardo_scratch/.../SelfEvo-CL3D/_datasets/images
 #
-# Needs: aprun + huggingface_hub (climb3d_pp.sif). Optional: HF_TOKEN for faster downloads.
+# Needs: python + huggingface_hub (climb3d_pp.sif). Optional: HF_TOKEN for faster downloads.
 set -euo pipefail
+# Plain python by default; lab: export FROST_PYTHON="aprun python"
+run_py() { # shellcheck disable=SC2086
+  ${FROST_PYTHON:-python} "$@";
+}
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEST="${1:-${REPO}/_datasets/images}"
@@ -35,9 +39,9 @@ mkdir -p "${TARGET}"
 echo "Staging iNF200 under ${TARGET}"
 echo "Downloading from Hugging Face (tldoan/iNF200) ..."
 
-# Download + extract inside aprun so HF + tar share the same Python env.
+# Download + extract with project python so HF + tar share the same Python env.
 # Extract into TARGET; tars already contain top-level train_mini/ and val/.
-aprun python - <<PY
+run_py - <<PY
 import os
 import tarfile
 from pathlib import Path
@@ -55,7 +59,7 @@ def stage(filename: str, expect_subdir: str) -> None:
     )
     print(f"Extracting {path} -> {target}", flush=True)
     with tarfile.open(path) as tar:
-        # Python 3.12+ supports filter=; older aprun images may not.
+        # Python 3.12+ supports filter=; older Python images may not.
         try:
             tar.extractall(path=target, filter="data")
         except TypeError:
