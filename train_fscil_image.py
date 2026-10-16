@@ -89,9 +89,16 @@ def _parse_seed_list(raw: str) -> list[int]:
 
 
 def load_json(path: str | Path) -> dict:
-    from utils.config_load import load_json as _load
+    # Always load from repo-root utils/ (lamba_pilot/utils is on path for ViT).
+    import importlib.util
 
-    return _load(path)
+    spec = importlib.util.spec_from_file_location(
+        "_frost_config_load", REPO_ROOT / "utils" / "config_load.py"
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.load_json(path)
 
 
 def setup_parser() -> argparse.ArgumentParser:

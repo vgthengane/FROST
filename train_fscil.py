@@ -75,9 +75,24 @@ TOY_DEFAULTS = {
 }
 
 
+def _ensure_repo_utils_package() -> None:
+    """Make ``utils`` the repo-root package (not ``lamba_pilot/utils``)."""
+    import types
+
+    utils_dir = REPO_ROOT / "utils"
+    init_py = utils_dir / "__init__.py"
+    pkg = types.ModuleType("utils")
+    pkg.__file__ = str(init_py)
+    pkg.__path__ = [str(utils_dir)]  # type: ignore[attr-defined]
+    sys.modules["utils"] = pkg
+
+
 def _preload_root_inc_net() -> None:
     """Register repo-root utils/inc_net.py before lamba_pilot/utils shadows it."""
-    spec = importlib.util.spec_from_file_location("utils.inc_net", ROOT_INC_NET)
+    _ensure_repo_utils_package()
+    spec = importlib.util.spec_from_file_location(
+        "utils.inc_net", ROOT_INC_NET, submodule_search_locations=[]
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -213,6 +228,7 @@ def _apply_seed_selection(
 
 
 def load_json(path: str | Path) -> dict:
+    _ensure_repo_utils_package()
     from utils.config_load import load_json as _load
 
     return _load(path)
