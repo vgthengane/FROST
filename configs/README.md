@@ -1,46 +1,71 @@
 # Config Guide
 
-This directory now contains the **active** experiment configs only. Superseded
-FSCIL tuning configs were moved to `_archive/configs/`.
+Configs use optional `_base` inheritance (see `utils/config_load.py`).
+Child files only list **what changes**.
 
-## Canonical active configs (in this directory)
+Paper blocks (`adapter`, `corrmem`, `protomem`, `fusion`) match Sec.~3 of the
+paper and are flattened to internal training keys at load time.
 
-This directory currently contains **only** FSCIL configs for the primary
-experiment track. Everything else (standard CIL configs) was moved to:
+ProtoMem details (static mean, 1 key/class, max pool, train-side conflict
+replay) and unused LAMDA `memory_*` live in `fscil_preset`, not the JSON bases.
 
-```text
-_archive/configs/cil/
-```
+## Bases (shared recipe)
 
-### FSCIL (primary track)
+| File | Role |
+|------|------|
+| `base/pclouds.json` | Paper 3D recipe: Adapter + CorrMem (\(V{=}2000\)) + ProtoMem (mean) + Fusion (\(\alpha{=}0.5\)), EF default |
+| `base/images.json` | Same dual-memory recipe for images (EF only) |
 
-These follow the **microshape / FSCIL-3D protocol** via `fscil3d_protocol`
-(same **class IDs** and **session schedule**; independent of microshape sample lists).
+Both list the full paper seed set. **Default runs use the first seed only**;
+pass `--fullseeds` (train entrypoints or reproduce scripts) for all five.
 
-| Config | Dataset | Protocol | Purpose |
-|--------|---------|----------|---------|
-| `selfevo_fscil_mn40_5t_flex_compare.json` | ModelNet40 | `modelnet` | Canonical FSCIL run for our method |
-| `selfevo_fscil_sn55_7t_flex_compare.json` | ShapeNet55 | `shapenet` | Canonical FSCIL run for our method |
-| `ranpac_fscil_mn40_5t_fscil3d.json` | ModelNet40 | `modelnet` | FSCIL baseline to add into `simpl_runs` |
-| `selfevo_fscil_mn40_scanobjectnn_4t.json` | ModelNet40→ScanObjectNN | `modelnet_scanobjectnn` | Cross-dataset pipeline (class split from microshape, full local samples/class) |
-| `selfevo_fscil_sn55_scanobjectnn_4t.json` | ShapeNet55→ScanObjectNN | `shapenet_scanobjectnn` | Cross-dataset pipeline (class split from microshape, full local samples/class) |
+## Point clouds — in-domain
 
-Use with:
+| Config | Protocol |
+|--------|----------|
+| `frost_pc_in_mn40.json` | ModelNet40 (5 sessions) |
+| `frost_pc_in_sn55.json` | ShapeNet55 (7 sessions) |
+| `frost_pc_in_co3d.json` | CO3D (6 sessions) |
+
+## Point clouds — cross-domain
+
+| Config | Protocol |
+|--------|----------|
+| `frost_pc_cross_mn40_scanobj.json` | MN → ScanObjectNN (4 sessions) |
+| `frost_pc_cross_sn55_scanobj.json` | SN → ScanObjectNN (4 sessions) |
+| `frost_pc_cross_sn55_co3d.json` | SN → CO3D (11 sessions) |
+
+**Buffer (EB):** no separate JSON. Reproduce scripts flip via `--buffer` /
+`--buffer-free` (`model_name=frost` + `fscil_preset=canonical`).
+
+## Images (paper = buffer-free only)
+
+| Config | Dataset |
+|--------|---------|
+| `frost_img_cub200.json` | CUB-200 |
+| `frost_img_inf200.json` | iNF200 |
+| `frost_img_aircraft.json` | FGVC-Aircraft |
+
+## Example
 
 ```bash
-sbatch scripts/simpl_runs.sh
-sbatch scripts/simpl_runs.sh --mn40-only
-sbatch scripts/simpl_runs.sh --sn55-only
+# 3D — first seed only (default)
+aprun python train_fscil.py --config configs/frost_pc_in_mn40.json
+
+# 3D — all paper seeds
+aprun python train_fscil.py --config configs/frost_pc_in_mn40.json --fullseeds
+
+# 3D EB via script flag
+sbatch scripts/reproduce_indomain.sh
+sbatch --array=0-29 scripts/reproduce_indomain.sh --fullseeds
+
+# Image
+aprun python train_fscil_image.py --config configs/frost_img_cub200.json
+sbatch --array=0-14 scripts/reproduce_image.sh --fullseeds
 ```
 
-Reference:
-- `_notes/fscil_canonical.md`
-- `external/FSCIL-3D/`
+## Baseline
 
-## Archived configs
-
-Superseded FSCIL tuning configs and all non-FSCIL configs live in `_archive/`
-(e.g. `_archive/configs/cil/` and `_archive/configs/`).
-
-Those files are retained for provenance only and should not be used for new
-runs unless you are reproducing a specific archived experiment tree.
+| Config | Notes |
+|--------|-------|
+| `ranpac_fscil_mn40_5t_fscil3d.json` | RanPAC FSCIL MN40 baseline (standalone) |

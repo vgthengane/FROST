@@ -17,10 +17,8 @@ from datasets.pointcloud_normals import with_normals
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OFFICIAL_ROOT = REPO_ROOT / "data" / "co3d"
-DEFAULT_OUTPUT_ROOT = REPO_ROOT / "_datasets" / "CO3D"
-DEFAULT_INDEX_ROOT = (
-    REPO_ROOT / "third_party" / "microshape" / "data" / "index_files" / "co3d"
-)
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / "_datasets" / "pclouds" / "CO3D"
+DEFAULT_INDEX_ROOT = REPO_ROOT / "datasets" / "session_pclouds" / "co3d"
 
 
 def normalize_index_rel_path(rel_path: str) -> str:

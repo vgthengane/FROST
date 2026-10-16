@@ -38,8 +38,8 @@ def get_backbone(args, pretrained=False):
         if args["model_name"] in (
             "aper_adapter",
             "ranpac",
-            "selfevo",
-            "selfevo_bufferfree",
+            "frost",
+            "frost_bufferfree",
             "fscil_finetune",
             "fscil_linprobe",
         ):

@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Literal
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Prefer in-repo vendored indexes (no third_party clone required for training).
+VENDORED_INDEX_ROOT = REPO_ROOT / "datasets" / "session_pclouds"
 FSCIL3D_ROOT = REPO_ROOT / "external" / "FSCIL-3D"
 MICROSHAPE_INDEX_ROOT = REPO_ROOT / "third_party" / "microshape" / "data" / "index_files"
 
@@ -60,26 +62,32 @@ class FSCIL3DProtocol:
 
 
 def get_index_root() -> Path:
-    """FSCIL-3D index files (``external/FSCIL-3D`` or ``third_party/microshape``)."""
-    for candidate in (FSCIL3D_ROOT / "data" / "index_files", MICROSHAPE_INDEX_ROOT):
+    """FSCIL-3D session/class index files (class IDs + relative sample paths)."""
+    for candidate in (
+        VENDORED_INDEX_ROOT,
+        FSCIL3D_ROOT / "data" / "index_files",
+        MICROSHAPE_INDEX_ROOT,
+    ):
         if candidate.is_dir():
             return candidate
     raise FileNotFoundError(
-        "FSCIL-3D index files not found. Clone FSCIL-3D into external/FSCIL-3D "
-        "or ensure third_party/microshape/data/index_files/ exists."
+        "FSCIL-3D index files not found. Expected datasets/session_pclouds/ "
+        "(vendored) or external/FSCIL-3D / third_party/microshape."
     )
 
 
 def get_fscil3d_root() -> Path:
+    """Best-effort root that *contains* ``data/index_files`` (legacy callers)."""
+    if VENDORED_INDEX_ROOT.is_dir():
+        return VENDORED_INDEX_ROOT.parent  # datasets/
     if FSCIL3D_ROOT.is_dir():
         return FSCIL3D_ROOT
     micro = REPO_ROOT / "third_party" / "microshape"
     if micro.is_dir() and MICROSHAPE_INDEX_ROOT.is_dir():
         return micro
     raise FileNotFoundError(
-        f"FSCIL-3D not found at {FSCIL3D_ROOT}. Clone with:\n"
-        "  git clone https://github.com/townim-faisal/FSCIL-3D.git external/FSCIL-3D\n"
-        "or use vendored third_party/microshape/."
+        "FSCIL-3D indexes not found. Use datasets/session_pclouds/ (vendored) "
+        "or clone https://github.com/townim-faisal/FSCIL-3D.git into external/FSCIL-3D."
     )
 
 
@@ -200,6 +208,7 @@ def _protocol_from_index_files(
 
 def _load_shapenet_co3d_config() -> dict:
     candidates = (
+        VENDORED_INDEX_ROOT / "shapenet_co3d_info.py",
         FSCIL3D_ROOT / "configs" / "shapenet_co3d_info.py",
         REPO_ROOT / "third_party" / "microshape" / "configs" / "shapenet_co3d_info.py",
     )
@@ -221,7 +230,7 @@ def load_protocol(
 
     For ``modelnet``, pass ``data_path`` so index class names map to canonical ids.
     """
-    get_fscil3d_root()
+    get_index_root()  # fail fast if indexes missing
     if name not in PROTOCOL_NAMES:
         raise ValueError(f"Unknown protocol {name!r}; choose from {PROTOCOL_NAMES}")
 

@@ -90,7 +90,7 @@ class ShapeNet55DataLoader(Dataset):
                     raise FileNotFoundError(
                         f"Missing FPS-derived normal cache: {self.save_path}\n"
                         f"No xyz FPS cache found under {self.root}.\n"
-                        "Run: aprun python scripts/build_shapenet_normals_from_fps_cache.py"
+                        "Run: aprun python datasets/preprocess/build_shapenet_normals_from_fps_cache.py"
                     )
                 else:
                     print("Processing data %s (only running in the first time)..." % self.save_path)

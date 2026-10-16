@@ -1,7 +1,7 @@
 {
     "prefix": "mn40_fscil5t_ranpac_fscil3d",
     "dataset": "modelnet40",
-    "data_path": "_datasets/modelnet40_normal_resampled",
+    "data_path": "_datasets/pclouds/ModelNet40",
     "memory_size": 0,
     "memory_per_class": 0,
     "fixed_memory": false,

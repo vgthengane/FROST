@@ -30,7 +30,9 @@ class iCO3D(object):
         self.test_targets = None
 
     def download_data(self):
-        data_path = self.args.get("data_path", str(REPO_ROOT / "_datasets" / "CO3D"))
+        data_path = self.args.get(
+            "data_path", str(REPO_ROOT / "_datasets" / "pclouds" / "CO3D")
+        )
         data_path = str(Path(data_path) if Path(data_path).is_absolute() else REPO_ROOT / data_path)
         num_category = int(self.args.get("num_category", 50))
 

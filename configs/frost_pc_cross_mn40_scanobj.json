@@ -1,0 +1,12 @@
+{
+  "_base": "base/pclouds.json",
+  "prefix": "frost_pc_cross_mn40_scanobj",
+  "dataset": "modelnet_scanobjectnn",
+  "fscil3d_protocol": "modelnet_scanobjectnn",
+  "source_data_path": "_datasets/pclouds/ModelNet40",
+  "scanobjectnn_data_path": "_datasets/pclouds/ScanObjNN/main_split_nobg",
+  "init_cls": 26,
+  "increment": 4,
+  "num_category": 37,
+  "fscil_last_task_index": 3
+}

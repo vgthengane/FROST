@@ -7,6 +7,7 @@
 
 .vscode/
 .cursor/
+.claude/
 
 experiments/*
 NOTES.*
@@ -175,11 +176,11 @@ cython_debug/
 _archive/
 _experiments/
 _datasets*/
-sync_*.sh
+sync*.sh
 WORKLOG.md
 _notes/*
 _paper/*
-# Vendor clones (use datasets/lgsp_index_list for session splits)
+# Vendor clones (session splits: datasets/session_pclouds, datasets/session_images)
 third_party/LGSP/
 third_party/co3d/
 third_party/microshape/

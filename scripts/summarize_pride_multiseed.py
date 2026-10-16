@@ -3,12 +3,8 @@
 
 Expects flat logs from::
 
-    scripts/simpl_runs_pride_alpha05_ep10_multiseed.sh
-    scripts/simpl_runs_pride_alpha05_buf_ep10_multiseed.sh
-    scripts/simpl_runs_pride_final_sub_ep10_multiseed.sh
-    scripts/simpl_runs_pride_final_sub_buf_ep10_multiseed.sh
-    scripts/simpl_runs_pride_final_sub_rp1000_ep10_multiseed.sh
-    scripts/simpl_runs_pride_final_sub_rp1000_buf_ep10_multiseed.sh
+    scripts/reproduce_indomain.sh
+    scripts/reproduce_crossdomain.sh
 
 Log patterns::
 

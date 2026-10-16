@@ -1,17 +1,17 @@
 """
-3D class-incremental learning entry point.
+3D FSCIL entry point (FROST + baselines).
 
 Uses:
-  - repo-root ``utils/inc_net.py``  — Uni3D backbones, MOSNet, SimpleVitNet, …
+  - repo-root ``utils/inc_net.py``  — Uni3D backbones, SimpleVitNet, …
   - ``lamba_pilot/``                — trainer, data manager
-  - ``models/``                     — 3D continual-learning learners
+  - ``models/``                     — FROST and FSCIL learners
   - ``backbone/``                   — Uni3D backbone implementations
-  - ``datasets/``                   — ModelNet40 point-cloud data loaders
+  - ``datasets/``                   — point-cloud FSCIL loaders
 
 Run from the repository root:
 
-    aprun python train_cil.py --config configs/mos_modelnet40.json
-    bash scripts/train_cil.sh simplecil mos
+    aprun python train_fscil.py --config configs/frost_pc_in_mn40.json
+    sbatch scripts/reproduce_indomain.sh
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 LAMBA_ROOT = REPO_ROOT / "lamba_pilot"
 ROOT_INC_NET = REPO_ROOT / "utils" / "inc_net.py"
+
+# Config loader lives under repo-root utils/; import after path setup in main.
 
 # Standard ModelNet40 baseline seeds (1993 is the LAMDA-PILOT default).
 MODELNET40_SEEDS = [1993, 1994, 1995, 1996, 1997]
@@ -93,7 +95,7 @@ def _setup_paths() -> None:
 
 
 def _resolve_paths(args: dict) -> None:
-    for key in ("data_path", "pretrained_pc", "log_dir", "text_prototype_path"):
+    for key in ("data_path", "pretrained_pc", "log_dir"):
         value = args.get(key)
         if not value:
             continue
@@ -161,12 +163,44 @@ def _parse_seed_list(raw: str) -> list[int]:
     return [int(part.strip()) for part in raw.split(",") if part.strip()]
 
 
-def _apply_seed_selection(args: dict, seeds: str | None, skip_seeds: str | None) -> None:
+def _normalize_seed_list(raw) -> list[int]:
+    if raw is None:
+        return []
+    if isinstance(raw, int):
+        return [raw]
+    if isinstance(raw, list):
+        return [int(s) for s in raw]
+    raise TypeError(f"seed must be int or list[int], got {type(raw)!r}")
+
+
+def _apply_seed_selection(
+    args: dict,
+    seeds: str | None,
+    skip_seeds: str | None,
+    *,
+    fullseeds: bool = False,
+) -> None:
+    """Select seeds to run.
+
+    Config may list the full paper set. By default only the **first** seed runs
+    unless ``--fullseeds`` or ``--seeds`` is passed.
+    """
+    configured = _normalize_seed_list(args.get("seed"))
     if seeds:
         args["seed"] = _parse_seed_list(seeds)
-    elif len(args.get("seed", [])) == 1:
-        # Keep single-seed configs backward-compatible unless user overrides.
-        pass
+    elif fullseeds:
+        if not configured:
+            raise ValueError("--fullseeds requires a non-empty seed list in the config")
+        args["seed"] = configured
+    elif len(configured) > 1:
+        args["seed"] = [configured[0]]
+        print(
+            "Using first seed only ({}); pass --fullseeds for {}".format(
+                configured[0], configured
+            )
+        )
+    else:
+        args["seed"] = configured
 
     if skip_seeds:
         skip = set(_parse_seed_list(skip_seeds))
@@ -179,8 +213,9 @@ def _apply_seed_selection(args: dict, seeds: str | None, skip_seeds: str | None)
 
 
 def load_json(path: str | Path) -> dict:
-    with open(path) as f:
-        return json.load(f)
+    from utils.config_load import load_json as _load
+
+    return _load(path)
 
 
 def parse_args():
@@ -226,6 +261,11 @@ def parse_args():
         default=None,
         metavar="S1,S2,...",
         help="Override config seeds (comma-separated). Example: --seeds 1994,1995,1996,1997",
+    )
+    parser.add_argument(
+        "--fullseeds",
+        action="store_true",
+        help="Run every seed listed in the config (default: first seed only).",
     )
     parser.add_argument(
         "--skip-seeds",
@@ -304,7 +344,9 @@ def main():
         )
     if "save_checkpoint" not in args:
         args["save_checkpoint"] = False
-    _apply_seed_selection(args, cli.seeds, cli.skip_seeds)
+    _apply_seed_selection(
+        args, cli.seeds, cli.skip_seeds, fullseeds=bool(cli.fullseeds)
+    )
     if cli.save_checkpoint:
         args["save_checkpoint"] = True
     if cli.resume:

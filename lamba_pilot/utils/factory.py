@@ -12,15 +12,21 @@ POINTCLOUD_DATASETS = {
     "shapenet_co3d",
 }
 
-# LGSP image FSCIL protocols (CUB / Aircraft / iNF200). Reuse repo-root SelfEvo.
+# Image FSCIL protocols (CUB / FGVC-Aircraft / iNF200). Reuse repo-root FROST.
 IMAGE_FSCIL_DATASETS = {
     "cub200",
     "fgvcaircraft",
     "inf200",
 }
 
-# Repo-root models/ holds SelfEvo / FSCIL learners (not a lamba_pilot subpackage).
+# FROST paper method lives under repo-root frost/; baselines under models/.
+_FROST_METHODS = {
+    "frost",
+    "frost_bufferfree",
+}
+
 _3D_METHODS = {
+    *_FROST_METHODS,
     "simplecil",
     "mos",
     "tuna",
@@ -31,17 +37,14 @@ _3D_METHODS = {
     "ranpac",
     "slca",
     "aper_adapter",
-    "selfevo",
-    "selfevo_bufferfree",
     "fscil_joint",
     "fscil_finetune",
     "fscil_linprobe",
 }
 
-# Methods that live under repo-root models/ even for image FSCIL.
+# Methods that live under repo-root (frost/ or models/) even for image FSCIL.
 _REPO_ROOT_IMAGE_METHODS = {
-    "selfevo",
-    "selfevo_bufferfree",
+    *_FROST_METHODS,
     "fscil_joint",
     "fscil_finetune",
     "fscil_linprobe",
@@ -51,9 +54,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_3d_learner(method_name):
-    path = REPO_ROOT / "models" / f"{method_name}.py"
+    if method_name in _FROST_METHODS:
+        path = REPO_ROOT / "frost" / f"{method_name}.py"
+    else:
+        path = REPO_ROOT / "models" / f"{method_name}.py"
     if not path.exists():
-        raise NotImplementedError(f"No 3D learner at {path}")
+        raise NotImplementedError(f"No learner at {path}")
     spec = importlib.util.spec_from_file_location(f"pilot_3d_{method_name}", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

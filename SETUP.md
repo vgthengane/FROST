@@ -2,7 +2,7 @@
 
 Code-derived reference for FSCIL experiments. Values map to config keys, code defaults, or campaign-script `--set` flags.
 
-**Primary sources:** `configs/selfevo_fscil_*.json`, `models/selfevo.py`, `models/ridge_head.py`, `models/key_cache.py`, `backbone/uni3d_adapter.py`, `datasets/fscil_protocol.py`, `models/fscil_ablation_config.py`, `scripts/simpl_runs_final_ep10_baseonly.sh`, `scripts/simpl_runs_final_hybrid_closefar.sh`.
+**Primary sources:** `configs/frost_pc_*.json` / `configs/frost_img_*.json` (see `configs/README.md`), `frost/` (`frost.py`, `corrmem.py`, `protomem.py`), `backbone/uni3d_adapter.py`, `datasets/fscil_protocol.py`, `utils/fscil_ablation_config.py`.
 
 ---
 
@@ -63,7 +63,7 @@ Unlike vision–language FSCIL methods, this pipeline is **vision-only** (no tex
 | `fscil_task1_adapter_warmup=false` | no task-1 adapter warmup |
 | `fscil_classifier_warmup_after_protos=false` | no classifier-aligned adapter warmup after protos |
 
-**Note:** canonical JSON alone (e.g. `selfevo_fscil_mn40_5t_flex_compare.json`) still has `increment_adapter_warmup: true`. Final paper runs use the **campaign script overrides** above.
+**Note:** paper recipe lives in `configs/base/pclouds.json` / `configs/base/images.json`. Reproduce scripts may still pass matching `--set` overrides for safety.
 
 ---
 
@@ -132,14 +132,14 @@ Order in `models/selfevo.py::_train` at each session \(t\):
 
 1. **Adapter warmup** (task 0 only in final campaigns)
 2. Freeze backbone; collect embeddings from `train_loader_for_protonet`
-3. **Insert KeyCache prototypes**
+3. **Insert ProtoMem prototypes**
 4. **Ridge update** on \(\mathcal{D}_t^{\mathrm{ridge}}\):
    - novel few-shot embeddings (+ optional exemplar buffer shots in proto dataset)
    - optional `_refresh_ridge_from_exemplar_buffer()` at \(t>0\) (1 shot/class, weight `fscil_base_ridge_refresh_weight=1.0`)
    - few-shot ridge up-weight: `fscil_novel_ridge_weight` (1.5 MN40, 2.5 SN55)
    - optional noise doubling: `fscil_ridge_proto_noise_std=0.015`
 5. Optional classifier warmup after protos (off in final campaigns)
-6. Build **adaptation batch** \(\mathcal{A}_t = \mathcal{D}_t^{\mathrm{novel}} \cup \mathcal{P}_t\) where \(\mathcal{P}_t\) = KeyCache keys (`old_data_source: cache`)
+6. Build **adaptation batch** \(\mathcal{A}_t = \mathcal{D}_t^{\mathrm{novel}} \cup \mathcal{P}_t\) where \(\mathcal{P}_t\) = ProtoMem keys (`old_data_source: cache`)
 7. **Cache evolution** (if `evolution_policy=rules`)
 8. **Conflict replay** into ridge (if enabled)
 
@@ -153,15 +153,15 @@ Order in `models/selfevo.py::_train` at each session \(t\):
 |------|-------|---------------|
 | Classifier mode | ridge + cache fusion | `classifier_mode: ridge_cache` |
 | Random projection dim \(B\) | **1000** | `ridge_rp_dim: 1000` |
-| Random map | \(h(\mathbf{z})=\mathrm{ReLU}(\mathbf{z} W_{\mathrm{rand}})\) | `RidgeHead._project()` |
-| \(W_{\mathrm{rand}}\) | sampled once, seed = run seed | `RidgeHead.__init__(seed=…)` |
-| Sufficient stats | \(\mathbf{G}\in\mathbb{R}^{B\times B}\), \(\mathbf{Q}\in\mathbb{R}^{B\times C_t}\) | `RidgeHead.G`, `RidgeHead.Q` |
+| Random map | \(h(\mathbf{z})=\mathrm{ReLU}(\mathbf{z} W_{\mathrm{rand}})\) | `CorrMem._project()` |
+| \(W_{\mathrm{rand}}\) | sampled once, seed = run seed | `CorrMem.__init__(seed=…)` |
+| Sufficient stats | \(\mathbf{G}\in\mathbb{R}^{B\times B}\), \(\mathbf{Q}\in\mathbb{R}^{B\times C_t}\) | `CorrMem.G`, `CorrMem.Q` |
 | Ridge penalty \(\lambda\) | grid search at task 0 | `fit_ridge=True` when `ridge_head.ridge is None` |
 | \(\lambda\) grid min | \(10^{-8}\) | `ridge_lambda_min` default in `selfevo.py` |
 | \(\lambda\) grid max | auto (up to \(10^8\)) or `ridge_lambda_max` | SN55: `ridge_lambda_max: 100000.0` |
 | Validation fraction for \(\lambda\) | 20% | `ridge_val_fraction: 0.2` (code default) |
-| Closed form | \(W=(\mathbf{G}+\lambda I)^{-1}\mathbf{Q}\) | `RidgeHead._solve_weights()` |
-| Config key for \(\lambda\) | `ridge_lambda` (optional); stored as `RidgeHead.ridge` | `models/ridge_head.py` |
+| Closed form | \(W=(\mathbf{G}+\lambda I)^{-1}\mathbf{Q}\) | `CorrMem._solve_weights()` |
+| Config key for \(\lambda\) | `ridge_lambda` (optional); stored as `CorrMem.ridge` | `frost/corrmem.py` |
 
 ---
 
@@ -179,7 +179,7 @@ On few-shot sessions, `_effective_ridge_alpha()` reduces \(\alpha_t\) from 0.85 
 
 ---
 
-## 10. KeyCache (canonical JSON — MN40 example)
+## 10. ProtoMem (canonical JSON — MN40 example)
 
 | Item | Value | Config |
 |------|-------|--------|
@@ -213,14 +213,14 @@ On few-shot sessions, `_effective_ridge_alpha()` reduces \(\alpha_t\) from 0.85 
 |------|-------|
 | Old-class disk shots | 1/class |
 | Ridge refresh shots | 1/class |
-| Old-class proxies for adaptation | KeyCache keys (`old_data_source: cache`) |
+| Old-class proxies for adaptation | ProtoMem keys (`old_data_source: cache`) |
 
 ### Buffer-free (`model_name=selfevo_bufferfree`)
 
 | Item | Value |
 |------|-------|
 | Disk exemplars | 0 |
-| Proxies | KeyCache only |
+| Proxies | ProtoMem only |
 
 ### Conflict replay (MN40 canonical JSON)
 
@@ -268,7 +268,7 @@ Campaign scripts **override** JSON defaults.
 | `hybrid_nearmean_st` | mean_nearmean | 2 | static |
 | `fps5_st` | cluster (FPS) | 5 | static |
 
-### Hybrid insert semantics (`models/key_cache.py`)
+### Hybrid insert semantics (`frost/protomem.py`)
 
 - `mean_close_far`: class mean + closest shot + farthest shot to mean
 - `mean_nearmean`: class mean + shot closest to mean
@@ -295,12 +295,13 @@ Not all hyperparameters are shared across benchmarks.
 
 | Protocol | Config |
 |----------|--------|
-| ModelNet40 intra | `configs/selfevo_fscil_mn40_5t_flex_compare.json` |
-| ShapeNet intra | `configs/selfevo_fscil_sn55_7t_flex_compare.json` |
-| CO3D intra | `configs/selfevo_fscil_co3d_6t.json` |
-| MN40 → ScanObjectNN | `configs/selfevo_fscil_mn40_scanobjectnn_4t.json` |
-| SN55 → ScanObjectNN | `configs/selfevo_fscil_sn55_scanobjectnn_4t.json` |
-| SN55 → CO3D | `configs/selfevo_fscil_sn55_co3d_11t.json` |
+| ModelNet40 intra | `configs/frost_pc_in_mn40.json` (EB via `--buffer` in reproduce scripts) |
+| ShapeNet intra | `configs/frost_pc_in_sn55.json` |
+| CO3D intra | `configs/frost_pc_in_co3d.json` |
+| MN40 → ScanObjectNN | `configs/frost_pc_cross_mn40_scanobj.json` |
+| SN55 → ScanObjectNN | `configs/frost_pc_cross_sn55_scanobj.json` |
+| SN55 → CO3D | `configs/frost_pc_cross_sn55_co3d.json` |
+| CUB / iNF / Aircraft | `configs/frost_img_{cub200,inf200,aircraft}.json` (EF only) |
 
 ---
 
@@ -323,7 +324,7 @@ Always run Python via `aprun python` on Leonardo.
 
 ## 16. Paper writing notes
 
-- Use **ridge penalty** \(\lambda\) (config: `ridge_lambda`, code: `RidgeHead.ridge`). Do not confuse with fusion weight \(\alpha_t\) (`ridge_cache_alpha`).
+- Use **ridge penalty** \(\lambda\) (config: `ridge_lambda`, code: `CorrMem.ridge`). Do not confuse with fusion weight \(\alpha_t\) (`ridge_cache_alpha`).
 - Batch size is **8**, not 32. Base adapter LR is **\(10^{-3}\)**, not \(10^{-4}\) (weight decay is \(10^{-4}\)).
 - Pick one prototype regime as the **main method** in the paper; list others as ablations (Section 12).
 - JSON defaults ≠ final campaign overrides: cite which launcher you used for main results.

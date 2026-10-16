@@ -1,0 +1,13 @@
+{
+  "_base": "base/pclouds.json",
+  "prefix": "frost_pc_cross_sn55_scanobj",
+  "dataset": "shapenet_scanobjectnn",
+  "fscil3d_protocol": "shapenet_scanobjectnn",
+  "source_data_path": "_datasets/pclouds/ShapeNet55",
+  "scanobjectnn_data_path": "_datasets/pclouds/ScanObjNN/main_split_nobg",
+  "excluded_synsets": [],
+  "init_cls": 44,
+  "increment": 5,
+  "num_category": 59,
+  "fscil_last_task_index": 3
+}

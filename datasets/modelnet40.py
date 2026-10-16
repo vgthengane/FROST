@@ -38,7 +38,7 @@ class iModelNet40(object):
 
     def download_data(self):
         data_path = self.args.get(
-            "data_path", str(REPO_ROOT / "_datasets" / "modelnet40_normal_resampled")
+            "data_path", str(REPO_ROOT / "_datasets" / "pclouds" / "ModelNet40")
         )
         data_path = str(Path(data_path) if Path(data_path).is_absolute() else REPO_ROOT / data_path)
 

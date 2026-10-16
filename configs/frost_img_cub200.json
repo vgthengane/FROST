@@ -1,0 +1,9 @@
+{
+  "_base": "base/images.json",
+  "prefix": "frost_img_cub200",
+  "dataset": "cub200",
+  "init_cls": 100,
+  "increment": 10,
+  "num_category": 200,
+  "tuned_epoch": 100
+}

@@ -1,0 +1,11 @@
+{
+  "_base": "base/pclouds.json",
+  "prefix": "frost_pc_in_mn40",
+  "dataset": "modelnet40",
+  "fscil3d_protocol": "modelnet",
+  "data_path": "_datasets/pclouds/ModelNet40",
+  "init_cls": 20,
+  "increment": 5,
+  "num_category": 40,
+  "fscil_last_task_index": 4
+}

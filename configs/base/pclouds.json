@@ -1,0 +1,51 @@
+{
+  "_paper": "FROST paper recipe — Adapter + CorrMem + ProtoMem + Fusion (EF default)",
+  "model_name": "frost_bufferfree",
+  "fscil_preset": "exemplar_buffer_free",
+  "seed": [1947, 1991, 2001, 2008, 2019],
+
+  "backbone_type": "uni3d_base_patch14_448",
+  "pc_model": "eva02_base_patch14_448",
+  "pretrained_pc": "_experiments/pretrained_weights/Uni3D/uni3d-b.pt",
+  "encoder_dim": 512,
+  "embed_dim": 1024,
+  "trans_dim": 768,
+  "num_group": 512,
+  "group_size": 64,
+  "device": ["0"],
+  "num_point": 1024,
+  "use_normals": true,
+  "process_data": true,
+  "use_uniform_sample": true,
+  "batch_size": 8,
+  "num_workers": 4,
+
+  "adapter": {
+    "ffn_num": 64,
+    "base_only": true,
+    "task0_warmup": true,
+    "increment_warmup": false,
+    "epochs": 10,
+    "lr": 0.001,
+    "init_lr": 0.005,
+    "weight_decay": 0.0005,
+    "min_lr": 0.0,
+    "optimizer": "sgd",
+    "task0_optimizer": "sgd",
+    "task0_weight_decay": 0.0001
+  },
+  "corrmem": {
+    "lift_v": 2000
+  },
+  "protomem": {
+    "insert": "mean"
+  },
+  "fusion": {
+    "mode": "corr_proto",
+    "alpha": 0.5
+  },
+
+  "fscil_shot_protocol": true,
+  "increment_train_per_class": 5,
+  "fscil_old_shot_replay_seed": 1947
+}

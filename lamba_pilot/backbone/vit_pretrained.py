@@ -90,7 +90,7 @@ def create_timm_vit(timm_name: str, num_classes: int = 0):
     logging.warning(
         "No local ViT checkpoint for %s under %s (or PRIDE_VIT_CKPT). "
         "Falling back to HuggingFace download — this fails on offline compute nodes. "
-        "Run: bash scripts/download_vit_in21k.sh && sync _experiments/pretrained_weights/ViT",
+        "Run: bash datasets/preprocess/download_vit_in21k.sh && sync _experiments/pretrained_weights/ViT",
         timm_name,
         _VIT_WEIGHT_DIR,
     )

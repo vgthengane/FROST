@@ -1,0 +1,12 @@
+{
+  "_base": "base/pclouds.json",
+  "prefix": "frost_pc_in_sn55",
+  "dataset": "shapenet55",
+  "fscil3d_protocol": "shapenet",
+  "data_path": "_datasets/pclouds/ShapeNet55",
+  "excluded_synsets": [],
+  "init_cls": 25,
+  "increment": 5,
+  "num_category": 55,
+  "fscil_last_task_index": 6
+}

@@ -1,0 +1,9 @@
+{
+  "_base": "base/images.json",
+  "prefix": "frost_img_aircraft",
+  "dataset": "fgvcaircraft",
+  "init_cls": 50,
+  "increment": 5,
+  "num_category": 100,
+  "tuned_epoch": 120
+}

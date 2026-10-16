@@ -31,7 +31,7 @@ class iScanObjectNN(object):
             "scanobjectnn_data_path",
             self.args.get(
                 "data_path",
-                str(REPO_ROOT / "_datasets" / "scanobjectnn" / "main_split_nobg"),
+                str(REPO_ROOT / "_datasets" / "pclouds" / "ScanObjNN" / "main_split_nobg"),
             ),
         )
         root = Path(data_path) if Path(data_path).is_absolute() else REPO_ROOT / data_path
@@ -48,7 +48,7 @@ class iScanObjectNN(object):
                 "ScanObjectNN cache files not found. Expected:\n"
                 f"  {train_file}\n"
                 f"  {test_file}\n"
-                "Build them with: aprun python scripts/build_scanobjectnn_1024_normals.py"
+                "Build them with: aprun python datasets/preprocess/build_scanobjectnn_1024_normals.py"
             )
 
         self.train_data, self.train_targets = self._load_cache(train_file)

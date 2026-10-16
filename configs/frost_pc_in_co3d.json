@@ -1,0 +1,11 @@
+{
+  "_base": "base/pclouds.json",
+  "prefix": "frost_pc_in_co3d",
+  "dataset": "co3d",
+  "fscil3d_protocol": "co3d",
+  "data_path": "_datasets/pclouds/CO3D",
+  "init_cls": 25,
+  "increment": 5,
+  "num_category": 50,
+  "fscil_last_task_index": 5
+}

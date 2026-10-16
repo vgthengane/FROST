@@ -1,0 +1,13 @@
+{
+  "_base": "base/pclouds.json",
+  "prefix": "frost_pc_cross_sn55_co3d",
+  "dataset": "shapenet_co3d",
+  "fscil3d_protocol": "shapenet_co3d",
+  "source_data_path": "_datasets/pclouds/ShapeNet55",
+  "co3d_data_path": "_datasets/pclouds/CO3D",
+  "excluded_synsets": [],
+  "init_cls": 39,
+  "increment": 5,
+  "num_category": 89,
+  "fscil_last_task_index": 10
+}

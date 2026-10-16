@@ -52,7 +52,7 @@ class CO3DDataLoader(Dataset):
             if not os.path.isfile(self.save_path):
                 raise FileNotFoundError(
                     f"Missing CO3D cache: {self.save_path}\n"
-                    "Run: aprun python scripts/build_co3d_official_1024_normals.py"
+                    "Run: aprun python datasets/preprocess/build_co3d_official_1024_normals.py"
                 )
             with open(self.save_path, "rb") as f:
                 points, labels = pickle.load(f)

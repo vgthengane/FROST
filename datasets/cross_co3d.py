@@ -96,7 +96,7 @@ class iCrossCO3D(object):
         tgt_args["fscil3d_protocol"] = None
         tgt_args["data_path"] = self.args.get(
             "co3d_data_path",
-            self.args.get("data_path", "_datasets/CO3D"),
+            self.args.get("data_path", "_datasets/pclouds/CO3D"),
         )
         tgt_args["num_category"] = 50
         target = iCO3D(tgt_args)
@@ -150,7 +150,7 @@ class iCrossCO3D(object):
     def _co3d_to_cross(self) -> dict[int, int]:
         co3d_path = self.args.get(
             "co3d_data_path",
-            self.args.get("data_path", "_datasets/CO3D"),
+            self.args.get("data_path", "_datasets/pclouds/CO3D"),
         )
         names = load_co3d_class_names(co3d_path)
         name_to_native = {name: idx for idx, name in enumerate(names)}

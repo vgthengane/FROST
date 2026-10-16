@@ -3,7 +3,7 @@
 Protocol source: https://github.com/Jywsuperman/LGSP (ICCV 2025)
 
 We reuse their ``session_*.txt`` index lists only. Method / PTM backbone stay
-in this repo (``models/selfevo.py`` + ``lamba_pilot`` ViT).
+in this repo (``frost/frost.py`` + ``lamba_pilot`` ViT).
 
 Shot protocol is baked into the index files:
   - session_1: full base-class training images
@@ -23,7 +23,7 @@ import numpy as np
 from torchvision import transforms
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INDEX_ROOT = REPO_ROOT / "datasets" / "lgsp_index_list"
+DEFAULT_INDEX_ROOT = REPO_ROOT / "datasets" / "session_images"
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -64,22 +64,39 @@ def _list2dict(lines: Iterable[str]) -> dict[int, str]:
     return out
 
 
+def _resolve_repo_path(value: str | Path) -> Path:
+    """Resolve absolute or repo-relative paths (cwd-independent)."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.resolve()
+
+
 def resolve_index_root(args: dict | None) -> Path:
+    """Session index root (``datasets/session_images`` by default; relative paths OK)."""
     if args:
-        custom = args.get("lgsp_index_root") or args.get("index_list_root")
+        custom = (
+            args.get("sessions_root")
+            or args.get("session_index_root")
+            or args.get("lgsp_index_root")  # legacy alias
+            or args.get("index_list_root")
+        )
         if custom:
-            return Path(custom).expanduser().resolve()
+            return _resolve_repo_path(custom)
     return DEFAULT_INDEX_ROOT
 
 
 def resolve_data_root(args: dict | None, default_name: str) -> Path:
-    """Image root containing CUB_200_2011 / fgvc-aircraft-2013b / iNF200."""
+    """Image root containing CUB200 / FGVC-Aircraft / iNF200."""
     if args:
         for key in ("data_path", "dataroot", "lgsp_data_root"):
             val = args.get(key)
             if val:
-                return Path(val).expanduser().resolve()
-    # Common layouts next to the repo
+                return _resolve_repo_path(val)
+    # Prefer FROST layout: _datasets/images
+    preferred = REPO_ROOT / "_datasets" / "images"
+    if preferred.exists():
+        return preferred.resolve()
     candidates = [
         REPO_ROOT / "data",
         REPO_ROOT.parent / "data",
@@ -89,7 +106,17 @@ def resolve_data_root(args: dict | None, default_name: str) -> Path:
     for c in candidates:
         if (c / default_name).exists():
             return c.resolve()
-    return (REPO_ROOT / "data").resolve()
+    return preferred.resolve()
+
+
+def resolve_image_subdir(data_root: Path, *names: str) -> Path:
+    """Pick first existing subdirectory (canonical name first, then legacy)."""
+    for name in names:
+        path = data_root / name
+        if path.exists():
+            return path
+    return data_root / names[0]
+
 
 
 def _maybe_subsample(args: dict, train_data, train_targets, test_data, test_targets):
@@ -152,13 +179,13 @@ class iCUB200FSCIL:
         self.test_targets = None
 
     def download_data(self):
-        data_root = resolve_data_root(self.args, "CUB_200_2011")
-        cub_root = data_root / "CUB_200_2011"
+        data_root = resolve_data_root(self.args, "CUB200")
+        cub_root = resolve_image_subdir(data_root, "CUB200", "CUB_200_2011")
         if not cub_root.exists():
             raise FileNotFoundError(
-                f"CUB_200_2011 not found under {data_root}. "
-                "Download per LGSP README (GDrive/Baidu) or official CUB, "
-                "then set data_path to the parent folder that contains CUB_200_2011/."
+                f"CUB not found under {data_root}. "
+                "Expected _datasets/images/CUB200/. "
+                "Download with datasets/preprocess/download_cub200.sh."
             )
 
         index_root = resolve_index_root(self.args) / "cub200"
@@ -196,17 +223,14 @@ class iCUB200FSCIL:
 
         for sess in session_files:
             for rel in _read_lines(sess):
-                # LGSP lines look like: CUB_200_2011/images/...
-                full = str((data_root / rel).resolve())
+                # Index lines: CUB200/images/... (legacy CUB_200_2011/ also accepted)
+                rel_norm = rel.replace("CUB_200_2011/", "CUB200/", 1)
+                full = str((data_root / rel_norm).resolve())
                 if full in seen:
                     continue
                 if full not in train_path2label:
-                    # Fall back: relative under cub images
-                    alt = str((data_root / rel).resolve())
-                    if alt not in train_path2label:
-                        logging.warning("LGSP index path missing from CUB train split: %s", rel)
-                        continue
-                    full = alt
+                    logging.warning("LGSP index path missing from CUB train split: %s", rel)
+                    continue
                 seen.add(full)
                 train_paths.append(full)
                 train_labels.append(train_path2label[full])
@@ -254,12 +278,16 @@ class iFGVCAircraftFSCIL:
         self.test_targets = None
 
     def download_data(self):
-        data_root = resolve_data_root(self.args, "fgvc-aircraft-2013b")
-        ac_root = data_root / "fgvc-aircraft-2013b" / "data"
+        data_root = resolve_data_root(self.args, "FGVC-Aircraft")
+        ac_base = resolve_image_subdir(
+            data_root, "FGVC-Aircraft", "Aircraft", "fgvc-aircraft-2013b"
+        )
+        ac_root = ac_base / "data"
         if not ac_root.exists():
             raise FileNotFoundError(
-                f"fgvc-aircraft-2013b not found under {data_root}. "
-                "Set data_path to the parent folder containing fgvc-aircraft-2013b/."
+                f"FGVC-Aircraft not found under {data_root}. "
+                "Expected _datasets/images/FGVC-Aircraft/data/. "
+                "Download with datasets/preprocess/download_fgvc_aircraft.sh."
             )
 
         variants = _read_lines(ac_root / "variants.txt")
@@ -280,7 +308,10 @@ class iFGVCAircraftFSCIL:
         }
         path_by_id = {Path(p).stem: p for p in train_paths_all}
 
-        index_root = resolve_index_root(self.args) / "FGVCAircraft"
+        index_root = resolve_index_root(self.args) / "FGVC-Aircraft"
+        if not index_root.is_dir():
+            # Legacy folder name from LGSP release
+            index_root = resolve_index_root(self.args) / "FGVCAircraft"
         train_paths: list[str] = []
         train_labels: list[int] = []
         seen: set[str] = set()
@@ -291,7 +322,7 @@ class iFGVCAircraftFSCIL:
             for rel in _read_lines(sess):
                 img_id = Path(rel).stem
                 if img_id not in path_by_id:
-                    logging.warning("Aircraft index id missing: %s", img_id)
+                    logging.warning("FGVC-Aircraft index id missing: %s", img_id)
                     continue
                 full = path_by_id[img_id]
                 if full in seen:

@@ -2,7 +2,7 @@
 # Remote Leonardo helpers from Surrey (or any host with a live Cineca SSH cert).
 #
 # Prerequisites:
-#   1) Short-lived Cineca OIDC cert in an ssh-agent (via sync_eurohpc.sh / leonardo.sh).
+#   1) Short-lived Cineca OIDC cert in an ssh-agent (via sync.sh / leonardo.sh).
 #      Certs expire; renew with browser SSO when needed.
 #   2) Network path to login.leonardo.cineca.it
 #
@@ -10,14 +10,14 @@
 #   bash scripts/leonardo_remote.sh check
 #   bash scripts/leonardo_remote.sh squeue
 #   bash scripts/leonardo_remote.sh sync-file datasets/lgsp_fscil.py
-#   bash scripts/leonardo_remote.sh sbatch scripts/simpl_runs_pride_image_alpha05_ep10.sh --array=2
-#   bash scripts/leonardo_remote.sh sh 'cd $REMOTE_DIR && bash scripts/check_pride_image_data.sh'
+#   bash scripts/leonardo_remote.sh sbatch scripts/reproduce_image.sh --array=2
+#   bash scripts/leonardo_remote.sh sh 'cd $REMOTE_DIR && bash scripts/check_frost_image_data.sh'
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CINECA_USER="${CINECA_USER:-vthengan}"
 LEONARDO_HOST="${LEONARDO_HOST:-login.leonardo.cineca.it}"
-REMOTE_DIR="${REMOTE_DIR:-/leonardo_scratch/fast/EUHPC_D36_199/projects/SelfEvo-CL3D}"
+REMOTE_DIR="${REMOTE_DIR:-/leonardo_scratch/fast/EUHPC_D36_199/projects/2027-ICLR-FROST}"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes -o ConnectTimeout=15"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -46,7 +46,7 @@ ensure_agent() {
   sock="$(find_cineca_agent)" || die \
     "No Cineca SSH certificate found in any ssh-agent.
 Renew once (interactive), then retry:
-  bash sync_eurohpc.sh --code --force
+  bash sync.sh --code --force
   # or: bash leonardo.sh --renew
 On Surrey this needs a Mac tunnel:
   ssh -N -L 10000:127.0.0.1:10000 surrey_ws"
@@ -67,7 +67,7 @@ case "${cmd}" in
     ensure_agent
     echo "SSH_AUTH_SOCK=${SSH_AUTH_SOCK}"
     ssh-add -l | head -3
-    ssh_leo 'hostname; echo CONNECTED; ls '"${REMOTE_DIR}"'/scripts/simpl_runs_pride_image_alpha05_ep10.sh'
+    ssh_leo 'hostname; echo CONNECTED; ls '"${REMOTE_DIR}"'/scripts/reproduce_image.sh'
     ;;
   squeue)
     ssh_leo "squeue -u ${CINECA_USER}"

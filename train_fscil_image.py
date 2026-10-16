@@ -4,13 +4,13 @@ Image FSCIL entry point (LGSP dataset protocol + LAMDA-PILOT ViT PTM).
 Uses:
   - ``lamba_pilot/utils/inc_net.py`` — timm ViT backbones (NOT Uni3D)
   - ``lamba_pilot/``                — trainer, data manager
-  - ``models/selfevo.py``           — PRidE / SelfEvo method
-  - ``datasets/lgsp_fscil.py``      — CUB / Aircraft / iNF200 + LGSP index_list
+  - ``models/selfevo.py`` / FROST  — image FSCIL method
+  - ``datasets/lgsp_fscil.py``      — CUB / FGVC-Aircraft / iNF200 + ``datasets/session_images``
 
 Run from the repository root:
 
-    aprun python train_fscil_image.py --config configs/pride_image_cub200_buffree.json
-    sbatch scripts/simpl_runs_pride_image_alpha05_ep10.sh
+    aprun python train_fscil_image.py --config configs/frost_img_cub200.json
+    sbatch scripts/reproduce_image.sh
 """
 
 from __future__ import annotations
@@ -40,7 +40,14 @@ def _setup_paths() -> None:
 
 
 def _resolve_paths(args: dict) -> None:
-    for key in ("data_path", "log_dir", "lgsp_index_root", "lgsp_data_root"):
+    for key in (
+        "data_path",
+        "log_dir",
+        "sessions_root",
+        "session_index_root",
+        "lgsp_index_root",  # legacy alias
+        "lgsp_data_root",
+    ):
         value = args.get(key)
         if not value:
             continue
@@ -82,8 +89,9 @@ def _parse_seed_list(raw: str) -> list[int]:
 
 
 def load_json(path: str | Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    from utils.config_load import load_json as _load
+
+    return _load(path)
 
 
 def setup_parser() -> argparse.ArgumentParser:
@@ -94,13 +102,13 @@ def setup_parser() -> argparse.ArgumentParser:
         "--config",
         type=str,
         required=True,
-        help="JSON config (e.g. configs/pride_image_cub200_buffree.json)",
+        help="JSON config (e.g. configs/frost_img_cub200.json)",
     )
     parser.add_argument(
         "--data-path",
         type=str,
         default=None,
-        help="Parent folder containing CUB_200_2011 / fgvc-aircraft-2013b / iNF200",
+        help="Parent folder containing CUB200 / FGVC-Aircraft / iNF200",
     )
     parser.add_argument("--device", type=str, nargs="+", default=None)
     parser.add_argument("--seed", type=int, nargs="+", default=None)
@@ -109,6 +117,11 @@ def setup_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Comma-separated seeds (overrides config), e.g. 2008",
+    )
+    parser.add_argument(
+        "--fullseeds",
+        action="store_true",
+        help="Run every seed listed in the config (default: first seed only).",
     )
     parser.add_argument(
         "--logdir",
@@ -152,10 +165,35 @@ def main() -> None:
         args["data_path"] = cli.data_path
     if cli.device is not None:
         args["device"] = [int(d) if str(d).lstrip("-").isdigit() else d for d in cli.device]
+    configured = args.get("seed")
+    if isinstance(configured, int):
+        configured = [configured]
+    elif not isinstance(configured, list):
+        configured = []
+    else:
+        configured = [int(s) for s in configured]
+
     if cli.seeds is not None:
         args["seed"] = _parse_seed_list(cli.seeds)
     elif cli.seed is not None:
-        args["seed"] = cli.seed
+        args["seed"] = list(cli.seed)
+    elif cli.fullseeds:
+        if not configured:
+            raise ValueError("--fullseeds requires a non-empty seed list in the config")
+        args["seed"] = configured
+    elif len(configured) > 1:
+        args["seed"] = [configured[0]]
+        print(
+            f"Using first seed only ({configured[0]}); "
+            f"pass --fullseeds for {configured}"
+        )
+    else:
+        args["seed"] = configured
+
+    if not args.get("seed"):
+        raise ValueError("No seeds left to run")
+    print(f"Seeds to run: {args['seed']}")
+
     if cli.logdir is not None:
         args["log_dir"] = cli.logdir
     if cli.method_name is not None:
