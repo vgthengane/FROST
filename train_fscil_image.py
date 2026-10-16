@@ -216,6 +216,17 @@ def main() -> None:
         )
 
     _resolve_paths(args)
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_frost_fscil_cfg", REPO_ROOT / "utils" / "fscil_ablation_config.py"
+    )
+    assert spec is not None and spec.loader is not None
+    _fcfg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_fcfg)
+    args = _fcfg._ensure_runtime_defaults(args)
+
     train(args)
 
 

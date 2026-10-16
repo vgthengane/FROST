@@ -407,6 +407,15 @@ def main():
         )
         args.setdefault("log_layout", "nested")
 
+    # DataManager needs shuffle/memory_* before FROST prepare_fscil_args runs.
+    spec = importlib.util.spec_from_file_location(
+        "_frost_fscil_cfg", REPO_ROOT / "utils" / "fscil_ablation_config.py"
+    )
+    assert spec is not None and spec.loader is not None
+    _fcfg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_fcfg)
+    args = _fcfg._ensure_runtime_defaults(args)
+
     from trainer import train
 
     train(args)
