@@ -407,14 +407,17 @@ def main():
         )
         args.setdefault("log_layout", "nested")
 
-    # DataManager needs shuffle/memory_* before FROST prepare_fscil_args runs.
-    spec = importlib.util.spec_from_file_location(
-        "_frost_fscil_cfg", REPO_ROOT / "utils" / "fscil_ablation_config.py"
-    )
-    assert spec is not None and spec.loader is not None
-    _fcfg = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(_fcfg)
-    args = _fcfg._ensure_runtime_defaults(args)
+    # DataManager needs these before FROST prepare_fscil_args (inline — avoid
+    # importlib-loading dataclasses without sys.modules registration).
+    args.setdefault("memory_size", 0)
+    args.setdefault("memory_per_class", 0)
+    args.setdefault("fixed_memory", False)
+    args.setdefault("shuffle", False)
+    args.setdefault("task0_save_warmup_ckpts", False)
+    args.setdefault("save_checkpoint", False)
+    n_cls = int(args.get("num_category", args.get("nb_classes", 40)))
+    n_proto = int(args.get("max_prototypes_per_class", 1))
+    args.setdefault("cache_budget", max(120, n_cls * max(n_proto, 1) + 50))
 
     from trainer import train
 
